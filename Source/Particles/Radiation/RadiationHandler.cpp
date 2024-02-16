@@ -38,6 +38,8 @@ auto const m_radiation_type  = std::map<std::string, RadiationType>{
 
 namespace
 {
+
+#if defined(WARPX_DIM_3D)
     auto compute_detector_positions(
         const amrex::Array<amrex::Real,3>& center,
         const amrex::Array<amrex::Real,3>& direction,
@@ -47,17 +49,35 @@ namespace
         const amrex::Array<amrex::Real,2>& theta_range,
         const std::string radiation_type)
     {
+#elif defined(WARPX_DIM_XZ)
+    auto compute_detector_positions(
+        const amrex::Array<amrex::Real,3>& center,
+        const amrex::Array<amrex::Real,2>& direction,
+        const amrex::Real distance,
+        const amrex::Array<amrex::Real,2>& orientation,
+        const amrex::int det_points,
+        const amrex::Real theta_range,
+        const std::string radiation_type)
+    {
+#endif
 
+#if defined(WARPX_DIM_3D)
         const auto how_many = det_points[0]*det_points[1];
+#elif defined(WARPX_DIM_XZ)
+        const auto how_many = det_points;
+#endif
 
-        auto host_det_x = amrex::Vector<amrex::Real>(how_many);
+#if defined(WARPX_DIM_3D)
         auto host_det_y = amrex::Vector<amrex::Real>(how_many);
-        auto host_det_z = amrex::Vector<amrex::Real>(how_many);
         auto host_det_theta = amrex::Vector<amrex::Real>(how_many);
+#elif defined(WARPX_DIM_XZ)
+        auto host_det_x = amrex::Vector<amrex::Real>(how_many);
+        auto host_det_z = amrex::Vector<amrex::Real>(how_many);
         auto host_det_phi = amrex::Vector<amrex::Real>(how_many);
+#endif
 
         if(m_radiation_type.at(radiation_type) == RadiationType::cartesian){
-
+#if defined(WARPX_DIM_3D)
             WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
                 direction[0]*orientation[0] +
                 direction[1]*orientation[1] +
@@ -114,10 +134,11 @@ namespace
 
                 }
             }
+#endif
         }
         
         if(m_radiation_type.at(radiation_type) == RadiationType::spherical){
-
+#if defined(WARPX_DIM_3D)
             const auto Ntheta = det_points[0];
             const auto Nphi = det_points[1];
             const auto dtheta = theta_range[0]/Ntheta;
@@ -148,32 +169,61 @@ namespace
                     host_det_phi[i*det_points[1] + j] = phi;
                 }
             }
+#elif defined(WARPX_DIM_XZ)
+            const auto Nphi = det_points[0];
+            const auto dphi = theta_range[0]/Nphi;
+            const auto phiOrigin = std::atan2(direction[1], direction[0]) - Nphi/2*dphi;
+
+            for (int i = 0; i < det_points[0]; ++i)
+            {
+                auto phi = phiOrigin + j*dphi;
+
+                //phi is in [0, 2*pi]
+                phi -= 2*ablastr::constant::math::pi*std::floor(phi/(2*ablastr::constant::math::pi));
+
+
+                host_det_x[i*det_points[1] + j] = center[0] + distance*std::cos(phi);
+                host_det_z[i*det_points[1] + j] = center[1] + distance*std::sin(phi);
+
+                host_det_phi[i*det_points[1] + j] = phi;
+            }
+#endif
         }
-
-        auto gpu_det_x = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
+rray<amrex::Real,2>
+#if define(WARPX_DIM_3D)
         auto gpu_det_y = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
-        auto gpu_det_z = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
         auto gpu_det_theta = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
+#elif defined(WARPX_DIM_XZ)
+        auto gpu_det_x = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
+        auto gpu_det_z = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
         auto gpu_det_phi = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
+#endif
 
-        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-            host_det_x.begin(), host_det_x.end(), gpu_det_x.begin());
+#if defined(WARPX_DIM_3D)
         amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
             host_det_y.begin(), host_det_y.end(), gpu_det_y.begin());
         amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+            host_det_theta.begin(), host_det_theta.end(), gpu_det_theta.begin());
+
+#elif defined(WARPX_DIM_XZ)
+        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+            host_det_x.begin(), host_det_x.end(), gpu_det_x.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
             host_det_z.begin(), host_det_z.end(), gpu_det_z.begin());
         amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-            host_det_theta.begin(), host_det_theta.end(), gpu_det_theta.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
             host_det_phi.begin(), host_det_phi.end(), gpu_det_phi.begin());
-
+#endif
 
         amrex::Gpu::Device::streamSynchronize();
-
+#if defined(WARPX_DIM_3D)
         return std::make_tuple(gpu_det_x, gpu_det_y, gpu_det_z, gpu_det_theta, gpu_det_phi);
-
+#elif define(WARPX_DIM_XZ)
+        return std::make_tuple(gpu_det_x, gpu_det_z, gpu_det_phi);
+#endif 
     }
 }
+
+
 
 
 RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
@@ -196,6 +246,7 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     std::copy(omega_range.begin(), omega_range.end(), m_omega_range.begin());
     getWithParser(pp_radiation, "omega_points", m_omega_points);
 
+#if defined(WARPX_DIM_3D)
     //Angle theta AND phi
     auto theta_range = std::vector<amrex::Real>(2);
     getArrWithParser(pp_radiation, "angle_aperture", theta_range);
@@ -213,14 +264,32 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     auto det_orientation = std::vector<amrex::Real>(3);
     getArrWithParser(pp_radiation, "detector_orientation", det_orientation);
     std::copy(det_orientation.begin(), det_orientation.end(), m_det_orientation.begin());
+#elif defined(WARPX_DIM_XZ)
+    //Angle theta AND phi
+    getWithParser(pp_radiation, "angle_aperture", m_theta_range);
 
+    //Detector parameters
+    getWithParser(pp_radiation, "detector_number_points", m_det_pts);
+
+    auto det_direction = std::vector<amrex::Real>(2);
+    getArrWithParser(pp_radiation, "detector_direction", det_direction);
+    std::copy(det_direction.begin(), det_direction.end(), m_det_direction.begin());
+
+    auto det_orientation = std::vector<amrex::Real>(2);
+    getArrWithParser(pp_radiation, "detector_orientation", det_orientation);
+    std::copy(det_orientation.begin(), det_orientation.end(), m_det_orientation.begin());
+#endif
     getWithParser(pp_radiation, "detector_distance", m_det_distance);
 
     std::tie(det_pos_x, det_pos_y, det_pos_z, det_pos_theta, det_pos_phi) = compute_detector_positions(
         center, m_det_direction, m_det_distance,
         m_det_orientation, m_det_pts, m_theta_range, radiation_type);
 
+#if defined(WARPX_DIM_3D)
     constexpr auto ncomp = 3;
+#elif deifned(WARPX_DIM_XZ)
+    constexpr auto ncomp = 2;
+#endif
     m_radiation_data = amrex::Gpu::DeviceVector<ablastr::math::Complex>(m_det_pts[0]*m_det_pts[1]*m_omega_points*ncomp);
 
     auto t_omegas = amrex::Vector<amrex::Real>(m_omega_points);
@@ -244,21 +313,26 @@ void RadiationHandler::add_radiation_contribution
 
                 for (WarpXParIter pti(*pc, lev); pti.isValid(); ++pti)
                 {
+
                     long const np = pti.numParticles();
                     const auto& attribs = pti.GetAttribs();
                     const auto* p_w = attribs[PIdx::w].data();
-                    const auto* p_ux = attribs[PIdx::ux].data();
+#if defined(WARPX_DIM_3D)
                     const auto* p_uy = attribs[PIdx::uy].data();
+#elif defined(WARPX_DIM_XZ)
+                    const auto* p_ux = attribs[PIdx::ux].data();
                     const auto* p_uz = attribs[PIdx::uz].data();
+#endif
 
                     const auto index = std::make_pair(pti.index(), pti.LocalTileIndex());
                     auto& part = pc->GetParticles(lev)[index];
                     auto& soa = part.GetStructOfArrays();
-
-                    const auto* p_ux_old = soa.GetRealData(pc->GetRealCompIndex("old_u_x")).data();
+#if defined(WARPX_DIM_3D)
                     const auto* p_uy_old = soa.GetRealData(pc->GetRealCompIndex("old_u_y")).data();
+#elif defined(WARPX_DIM_XZ)       
+                    const auto* p_ux_old = soa.GetRealData(pc->GetRealCompIndex("old_u_x")).data();
                     const auto* p_uz_old = soa.GetRealData(pc->GetRealCompIndex("old_u_z")).data();
-
+#endif
                     auto GetPosition = GetParticlePosition<PIdx>(pti);
                     auto const q = pc->getCharge();
 
@@ -266,9 +340,12 @@ void RadiationHandler::add_radiation_contribution
 
                     const auto p_omegas = m_omegas.dataPtr();
 
-                    const auto p_det_pos_x = det_pos_x.dataPtr();
+#if defined(WARPX_DIM_3D)
                     const auto p_det_pos_y = det_pos_y.dataPtr();
+#elif defined(WARPX_DIM_XZ)
+                    const auto p_det_pos_x = det_pos_x.dataPtr();
                     const auto p_det_pos_z = det_pos_z.dataPtr();
+#endif
 
                     auto p_radiation_data = m_radiation_data.dataPtr();
 
@@ -280,24 +357,40 @@ void RadiationHandler::add_radiation_contribution
 
                     amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE(int ip){
                         amrex::ParticleReal xp, yp, zp;
-                        GetPosition.AsStored(ip,xp, yp, zp);
+                        GetPosition.AsStored(ip, xp, yp, zp);
 
-                        const auto ux = 0.5_prt*(p_ux[ip] + p_ux_old[ip]);
+#if defined(WARPX_DIM_3D)
                         const auto uy = 0.5_prt*(p_uy[ip] + p_uy_old[ip]);
+#elif deifned(WARPX_DIM_XZ)
+                        const auto ux = 0.5_prt*(p_ux[ip] + p_ux_old[ip]);
                         const auto uz = 0.5_prt*(p_uz[ip] + p_uz_old[ip]);
+#endif
+
+#if defined(WARPX_DIM_3D)
                         auto const u2 = ux*ux + uy*uy + uz*uz;
+#elif defined(WARPX_DIM_XZ)
+                        auto const u2 = ux*ux + uz*uz;
+#endif
 
                         auto const one_over_gamma = 1._prt/std::sqrt(1.0_rt + u2*inv_c2);
 
                         auto const one_over_gamma_c = one_over_gamma*inv_c;
-                        const auto bx = ux*one_over_gamma_c;
+
+#if defined(WARPX_DIM_3D)
                         const auto by = uy*one_over_gamma_c;
+#elif defined(WARPX_DIM_XZ)                        
+                        const auto bx = ux*one_over_gamma_c;
                         const auto bz = uz*one_over_gamma_c;
+#endif
 
                         const auto one_over_dt_gamma_c = one_over_gamma_c/dt;
-                        const auto bpx = (p_ux[ip] - p_ux_old[ip])*one_over_dt_gamma_c;
+
+#if defined(WARPX_DIM_3D)
                         const auto bpy = (p_uy[ip] - p_uy_old[ip])*one_over_dt_gamma_c;
+#elif defined(WARPX_DIM_XZ)
+                        const auto bpx = (p_ux[ip] - p_ux_old[ip])*one_over_dt_gamma_c;
                         const auto bpz = (p_uz[ip] - p_uz_old[ip])*one_over_dt_gamma_c;
+#endif
 
                         const auto tot_q = q*p_w[ip];
 
@@ -306,24 +399,45 @@ void RadiationHandler::add_radiation_contribution
                             const auto i_omega_over_c = Complex{0.0_prt, 1.0_prt}*p_omegas[i_om]*inv_c;
                             for (int i_det = 0; i_det < how_many_det_pos; ++i_det){
 
-                                const auto part_det_x = xp - p_det_pos_x[i_det];
+#if defined(WARPX_DIM_3D)
                                 const auto part_det_y = yp - p_det_pos_y[i_det];
+#elif defined(WARPX_DIM_XZ)
+                                const auto part_det_x = xp - p_det_pos_x[i_det];
                                 const auto part_det_z = zp - p_det_pos_z[i_det];
+#endif
+
+#if defined(WARPX_DIM_3D)
                                 const auto d_part_det = std::sqrt(
                                     part_det_x*part_det_x + part_det_y*part_det_y + part_det_z*part_det_z);
+#elif defined(WARPX_DIM_XZ)
+                                const auto d_part_det = std::sqrt(
+                                    part_det_x*part_det_x + part_det_z*part_det_z);
+#endif
+
                                 const auto one_over_d_part_det = 1.0_prt/d_part_det;
 
-                                const auto nx = part_det_x*one_over_d_part_det;
+#if defined(WARPX_DIM_3D)
                                 const auto ny = part_det_y*one_over_d_part_det;
+#elif define(WARPX_DIM_XZ)
+                                const auto nx = part_det_x*one_over_d_part_det;
                                 const auto nz = part_det_z*one_over_d_part_det;
+#endif
 
+#if defined(WARPX_DIM_3D)
                                 //Calculation of 1_beta.n, n corresponds to m_det_direction, the direction of the normal
                                 const auto one_minus_b_dot_n = 1.0_prt - (bx*nx + by*ny + bz*nz);
+#elif deifned(WARPX_DIM_XZ)
+                                const auto one_minus_b_dot_n = 1.0_prt - (bx*nx + bz*nz);
+#endif
 
-                                const auto n_minus_beta_x = nx - bx;
+#if defined(WARPX_DIM_3D)
                                 const auto n_minus_beta_y = ny - by;
+#elif defined(WARPX_DIM_XZ)
+                                const auto n_minus_beta_x = nx - bx;
                                 const auto n_minus_beta_z = nz - bz;
+#endif
 
+#if defined(WARPX_DIM_3D)
                                 //Calculation of nxbeta
                                 const auto n_minus_beta_cross_bp_x = n_minus_beta_y*bpz - n_minus_beta_z*bpy;
                                 const auto n_minus_beta_cross_bp_y = n_minus_beta_z*bpx - n_minus_beta_x*bpz;
@@ -333,14 +447,24 @@ void RadiationHandler::add_radiation_contribution
                                 const auto n_cross_n_minus_beta_cross_bp_x = ny*n_minus_beta_cross_bp_z - nz*n_minus_beta_cross_bp_y;
                                 const auto n_cross_n_minus_beta_cross_bp_y = nz*n_minus_beta_cross_bp_x - nx*n_minus_beta_cross_bp_z;
                                 const auto n_cross_n_minus_beta_cross_bp_z = nx*n_minus_beta_cross_bp_y - ny*n_minus_beta_cross_bp_x;
+#elif defined(WARPX_DIM_XZ)
+                                const auto n_dot_bp = nx*bpx + nz*bpz;
+                                const auto n_minus_beta_dot_n = n_minus_beta_x*nx + n_minus_beta_z*nz;
+                                
+                                const auto n_cross_n_minus_beta_cross_bp_x = n_dot_bp*n_minus_beta_x - n_minus_beta_dot_n*nx
+                                const auto n_cross_n_minus_beta_cross_bp_z = n_dot_bp*n_minus_beta_z - n_minus_beta_dot_n*nz
+#endif
 
                                 const auto phase_term = amrex::exp(i_omega_over_c*(c*current_time - d_part_det));
 
                                 const auto coeff = tot_q*phase_term/(one_minus_b_dot_n*one_minus_b_dot_n);
 
-                                auto cx = coeff*n_cross_n_minus_beta_cross_bp_x;
+#if defined(WARPX_DIM_3D)
                                 auto cy = coeff*n_cross_n_minus_beta_cross_bp_y;
+#elif deifned(WARPX_DIM_XZ)
+                                auto cx = coeff*n_cross_n_minus_beta_cross_bp_x;
                                 auto cz = coeff*n_cross_n_minus_beta_cross_bp_z;
+#endif
 
                                 // Nyquist limiter
                                 /*if(p_omegas[i_om] < ablastr::constant::math::pi/one_minus_b_dot_n/dt){
@@ -349,28 +473,43 @@ void RadiationHandler::add_radiation_contribution
                                     cz = 0.0;
                                 }*/
                                 
+#if defined(WARPX_DIM_3D)
                                 const int ncomp = 3;
                                 const int idx0 = (i_om*how_many_det_pos + i_det)*ncomp;
                                 const int idx1 = idx0 + 1;
                                 const int idx2 = idx0 + 2;
+#elif defined(WARPX_DIM_XZ)
+                                const int ncomp = 2;
+                                const int idx0 = (i_om*how_many_det_pos + i_det)*ncomp;
+                                const int idx2 = idx0 + 1;
+#endif
 
 #ifdef AMREX_USE_OMP
-                                #pragma omp atomic
-                                p_radiation_data[idx0].m_real += cx.m_real;
-                                #pragma omp atomic
-                                p_radiation_data[idx0].m_imag += cx.m_imag;
+    #if defined(WARPX_DIM_3D)
                                 #pragma omp atomic
                                 p_radiation_data[idx1].m_real += cy.m_real;
                                 #pragma omp atomic
                                 p_radiation_data[idx1].m_imag += cy.m_imag;
+    #elif defined(WARPX_DIM_XZ)
+                                #pragma omp atomic
+                                p_radiation_data[idx0].m_real += cx.m_real;
+                                #pragma omp atomic
+                                p_radiation_data[idx0].m_imag += cx.m_imag;
+                                
                                 #pragma omp atomic
                                 p_radiation_data[idx2].m_real += cz.m_real;
                                 #pragma omp atomic
                                 p_radiation_data[idx2].m_imag += cz.m_imag;
+    #endif
 #else
-                                p_radiation_data[idx0] += cx;
+    #if define(WARPX_DIM_3D)
+    
                                 p_radiation_data[idx1] += cy;
+    
+    #elif defined(WARPX_DIM_XZ)
+                                p_radiation_data[idx0] += cx;
                                 p_radiation_data[idx2] += cz;
+    #endif
 #endif
                             }
                         }
@@ -394,13 +533,18 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename)
     if (amrex::ParallelDescriptor::IOProcessor() ){
         auto of = std::ofstream(filename, std::ios::binary);
 
+#if defined(WARPX_DIM_3D)
         const auto how_many = m_det_pts[0]*m_det_pts[1];
-        auto det_pos_x_cpu = amrex::Vector<amrex::Real>(how_many);
         auto det_pos_y_cpu = amrex::Vector<amrex::Real>(how_many);
-        auto det_pos_z_cpu = amrex::Vector<amrex::Real>(how_many);
         auto det_pos_theta_cpu = amrex::Vector<amrex::Real>(how_many);
+
+#elif defined(WARPX_DIM_XZ)
+        const auto how_many = m_det_pts;
+        auto det_pos_x_cpu = amrex::Vector<amrex::Real>(how_many);
+        auto det_pos_z_cpu = amrex::Vector<amrex::Real>(how_many);
         auto det_pos_phi_cpu = amrex::Vector<amrex::Real>(how_many);
         auto omegas_cpu = amrex::Vector<amrex::Real>(m_omega_points);
+#endif
 
         amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
             det_pos_x.begin(), det_pos_x.end(), det_pos_x_cpu.begin());
@@ -432,14 +576,27 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename)
 void RadiationHandler::Integral_overtime(const amrex::Real dt)
 {
     const auto factor = ablastr::constant::SI::q_e*dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
+
+#if defined(WARPX_DIM_3D)    
     const auto how_many = m_det_pts[0]*m_det_pts[1];
+#elif defined(WARPX_DIM_XZ)
+    const auto how_many = m_det_pts; 
+#endif
+
     auto p_radiation_data = m_radiation_data.dataPtr();
     m_radiation_calculation.resize(how_many*m_omega_points);
-    for(int idx=0; idx<m_omega_points*how_many; ++idx){
+    for(int idx=0; idx < m_omega_points*how_many; ++idx){
+#if defined(WARPX_DIM_3D)
             const int idx0 = idx*3;
             const int idx1 = idx0 + 1;
             const int idx2 = idx0 + 2;
-            //amrex::Print() << (amrex::norm(p_radiation_data[idx0])+amrex::norm(p_radiation_data[idx1])+amrex::norm(p_radiation_data[idx2])) << std::endl;
             m_radiation_calculation[idx]=(amrex::norm(p_radiation_data[idx0]) + amrex::norm(p_radiation_data[idx1]) + amrex::norm(p_radiation_data[idx2]))*factor;
+#elif defined(WARPX_DIM_XZ)
+            const int idx0 = idx*3;
+            const int idx2 = idx0 + 1;
+            m_radiation_calculation[idx]=(amrex::norm(p_radiation_data[idx0]) + amrex::norm(p_radiation_data[idx2]))*factor;
+#endif
+            //amrex::Print() << (amrex::norm(p_radiation_data[idx0])+amrex::norm(p_radiation_data[idx1])+amrex::norm(p_radiation_data[idx2])) << std::endl;
+            
     }
 }

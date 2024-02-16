@@ -49,9 +49,15 @@ private:
     amrex::Array<amrex::Real,2> m_theta_range;
 
     amrex::Real m_det_distance;
+#if defined(WARPX_DIM_3D)
     amrex::Array<int,2> m_det_pts;
     amrex::Array<amrex::Real,3> m_det_direction;
     amrex::Array<amrex::Real,3> m_det_orientation;
+#elif defined(WARPX_DIM_XZ)
+    amrex::int m_det_pts;
+    amrex::Array<amrex::Real,2> m_det_direction;
+    amrex::Array<amrex::Real,2> m_det_orientation;
+#endif
 
     amrex::Gpu::DeviceVector<amrex::Real> det_pos_x;
     amrex::Gpu::DeviceVector<amrex::Real> det_pos_y;
