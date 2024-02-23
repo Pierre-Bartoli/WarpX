@@ -305,11 +305,7 @@ void RadiationHandler::add_radiation_contribution
                         GetPosition.AsStored(ip,xp, yp, zp);
 
                         const auto ux = 0.5_prt*(p_ux[ip] + p_ux_old[ip]);
-#if defined(WARPX_DIM_3D)
                         const auto uy = 0.5_prt*(p_uy[ip] + p_uy_old[ip]);
-#elif defined(WARPX_DIM_XZ)
-                        const auto uy = 0.5_prt*(p_uy[ip] + p_uy_old[ip]);
-#endif
                         const auto uz = 0.5_prt*(p_uz[ip] + p_uz_old[ip]);
 
                         auto const u2 = ux*ux + uy*uy + uz*uz;
@@ -375,11 +371,11 @@ void RadiationHandler::add_radiation_contribution
                         auto cz = coeff*n_cross_n_minus_beta_cross_bp_z;
 
                         // Nyquist limiter
-                        if(p_omegas[i_om] < ablastr::constant::math::pi/one_minus_b_dot_n/dt){
+                        /*if(p_omegas[i_om] < ablastr::constant::math::pi/one_minus_b_dot_n/dt){
                             cx = 0.0;
                             cy = 0.0;
                             cz = 0.0;
-                        }
+                        }*/
                         
                         const int ncomp = 3;
                         const int idx0 = (i_om*how_many_det_pos + i_det)*ncomp;
@@ -392,14 +388,15 @@ void RadiationHandler::add_radiation_contribution
                         amrex::HostDevice::Atomic::Add(&p_radiation_data[idx1].m_imag, cy.m_imag);
                         amrex::HostDevice::Atomic::Add(&p_radiation_data[idx2].m_real, cz.m_real);
                         amrex::HostDevice::Atomic::Add(&p_radiation_data[idx2].m_imag, cz.m_imag);
-                        });
-                    }   
-                }
+                    });
+                }   
             }
+        }
     }
 
 void RadiationHandler::gather_and_write_radiation(const std::string& filename)
 {
+
     auto radiation_data_cpu = amrex::Vector<amrex::Real>(m_det_pts[0]*m_det_pts[1]*m_omega_points);
     amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
         m_radiation_calculation.begin(), m_radiation_calculation.end(), radiation_data_cpu.begin());
@@ -415,16 +412,19 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename)
 #if defined(WARPX_DIM_3D)
         auto det_pos_y_cpu = amrex::Vector<amrex::Real>(how_many);
         auto det_pos_theta_cpu = amrex::Vector<amrex::Real>(how_many);
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-            det_pos_y.begin(), det_pos_y.end(), det_pos_y_cpu.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-            det_pos_theta.begin(), det_pos_theta.end(), det_pos_theta_cpu.begin());
 #endif
 
         auto det_pos_x_cpu = amrex::Vector<amrex::Real>(how_many);
         auto det_pos_z_cpu = amrex::Vector<amrex::Real>(how_many);
         auto det_pos_phi_cpu = amrex::Vector<amrex::Real>(how_many);
         auto omegas_cpu = amrex::Vector<amrex::Real>(m_omega_points);
+
+#if defined(WARPX_DIM_3D)
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+            det_pos_y.begin(), det_pos_y.end(), det_pos_y_cpu.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+            det_pos_theta.begin(), det_pos_theta.end(), det_pos_theta_cpu.begin());
+#endif
         amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
             det_pos_x.begin(), det_pos_x.end(), det_pos_x_cpu.begin());
         amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
@@ -458,14 +458,17 @@ void RadiationHandler::Integral_overtime(const amrex::Real dt)
   
     const auto how_many = m_det_pts[0]*m_det_pts[1];
 
-    auto p_radiation_data = m_radiation_data.dataPtr();
-    m_radiation_calculation.resize(how_many*m_omega_points);
-    for(int idx=0; idx < m_omega_points*how_many; ++idx){
+    auto* const p_radiation_data = m_radiation_data.dataPtr();
+
+    m_radiation_calculation = amrex::Gpu::DeviceVector<amrex::Real>(how_many*m_omega_points);
+    auto* const p_radiation_calculation = m_radiation_calculation.dataPtr();
+
+    amrex::ParallelFor(m_omega_points*how_many, 
+        [=] AMREX_GPU_DEVICE(int idx){
             const int idx0 = idx*3;
             const int idx1 = idx0 + 1;
             const int idx2 = idx0 + 2;
-            m_radiation_calculation[idx]=(amrex::norm(p_radiation_data[idx0]) + amrex::norm(p_radiation_data[idx1]) + amrex::norm(p_radiation_data[idx2]))*factor;
-            //amrex::Print() << (amrex::norm(p_radiation_data[idx0])+amrex::norm(p_radiation_data[idx1])+amrex::norm(p_radiation_data[idx2])) << std::endl;
-            
-    }
+            p_radiation_calculation[idx]=(amrex::norm(p_radiation_data[idx0]) + amrex::norm(p_radiation_data[idx1]) + amrex::norm(p_radiation_data[idx2]))*factor;
+
+        });
 }
