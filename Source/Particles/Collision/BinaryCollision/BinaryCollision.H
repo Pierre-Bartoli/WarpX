@@ -72,7 +72,8 @@ class BinaryCollision final
     // Define shortcuts for frequently-used type names
     using ParticleType = WarpXParticleContainer::ParticleType;
     using ParticleTileType = WarpXParticleContainer::ParticleTileType;
-    using ParticleBins = amrex::DenseBins<ParticleType>;
+    using ParticleTileDataType = ParticleTileType::ParticleTileDataType;
+    using ParticleBins = amrex::DenseBins<ParticleTileDataType>;
     using SoaData_type = WarpXParticleContainer::ParticleTileType::ParticleTileDataType;
     using index_type = ParticleBins::index_type;
 
@@ -109,8 +110,10 @@ public:
 
     BinaryCollision ( BinaryCollision const &)             = default;
     BinaryCollision& operator= ( BinaryCollision const & ) = default;
-    BinaryCollision ( BinaryCollision&& )            noexcept = default;
-    BinaryCollision& operator= ( BinaryCollision&& ) noexcept = default;
+
+
+    BinaryCollision ( BinaryCollision&& )                  = delete;
+    BinaryCollision& operator= ( BinaryCollision&& )       = delete;
 
     /** Perform the collisions
      *
@@ -174,7 +177,7 @@ public:
 
         amrex::LayoutData<amrex::Real>* cost = WarpX::getCosts(lev);
 
-            // Loop over all grids/tiles at this level
+        // Loop over all grids/tiles at this level
 #ifdef AMREX_USE_OMP
             info.SetDynamic(true);
 #pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
@@ -261,9 +264,6 @@ public:
             const amrex::ParticleReal q1 = species_1.getCharge();
             const amrex::ParticleReal m1 = species_1.getMass();
             auto get_position_1  = GetParticlePosition<PIdx>(ptile_1, getpos_offset);
-            // Needed to access the particle id
-            ParticleType * AMREX_RESTRICT
-                                 particle_ptr_1 = ptile_1.GetArrayOfStructs()().data();
 
             amrex::Geometry const& geom = WarpX::GetInstance().Geom(lev);
 #if defined WARPX_DIM_1D_Z
@@ -368,8 +368,10 @@ public:
             // Create the new product particles and define their initial values
             // num_added: how many particles of each product species have been created
             const amrex::Vector<int> num_added = m_copy_transform_functor(n_total_pairs,
-                                                    soa_1, soa_1, tile_products_data,
-                                                    particle_ptr_1, particle_ptr_1, m1, m1,
+                                                    soa_1, soa_1,
+                                                    product_species_vector,
+                                                    tile_products_data,
+                                                    m1, m1,
                                                     products_mass, p_mask, products_np,
                                                     copy_species1, copy_species2,
                                                     p_pair_indices_1, p_pair_indices_2,
@@ -401,9 +403,6 @@ public:
             const amrex::ParticleReal q1 = species_1.getCharge();
             const amrex::ParticleReal m1 = species_1.getMass();
             auto get_position_1  = GetParticlePosition<PIdx>(ptile_1, getpos_offset);
-            // Needed to access the particle id
-            ParticleType * AMREX_RESTRICT
-                                 particle_ptr_1 = ptile_1.GetArrayOfStructs()().data();
             // - Species 2
             const auto soa_2 = ptile_2.getParticleTileData();
             index_type* AMREX_RESTRICT indices_2 = bins_2.permutationPtr();
@@ -411,9 +410,6 @@ public:
             const amrex::ParticleReal q2 = species_2.getCharge();
             const amrex::ParticleReal m2 = species_2.getMass();
             auto get_position_2  = GetParticlePosition<PIdx>(ptile_2, getpos_offset);
-            // Needed to access the particle id
-            ParticleType * AMREX_RESTRICT
-                                 particle_ptr_2 = ptile_2.GetArrayOfStructs()().data();
 
             amrex::Geometry const& geom = WarpX::GetInstance().Geom(lev);
 #if defined WARPX_DIM_1D_Z
@@ -530,8 +526,10 @@ public:
             // Create the new product particles and define their initial values
             // num_added: how many particles of each product species have been created
             const amrex::Vector<int> num_added = m_copy_transform_functor(n_total_pairs,
-                                                    soa_1, soa_2, tile_products_data,
-                                                    particle_ptr_1, particle_ptr_2, m1, m2,
+                                                    soa_1, soa_2,
+                                                    product_species_vector,
+                                                    tile_products_data,
+                                                    m1, m2,
                                                     products_mass, p_mask, products_np,
                                                     copy_species1, copy_species2,
                                                     p_pair_indices_1, p_pair_indices_2,
