@@ -441,7 +441,7 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename)
             for (int i_det = 0; i_det < how_many; ++i_det)
             {
 #if defined(WARPX_DIM_3D)
-                of << omegas_cpu[i_om] << " " << det_pos_theta_cpu[i_det] << " " << det_pos_phi_cpu[i_det] << " " << det_pos_x_cpu[i_det] << " " << det_pos_y_cpu[i_det] << " " << det_pos_z_cpu[i_det]  << " " << radiation_data_cpu[++idx] << "\n";
+                of << omegas_cpu[i_om] << " " << det_pos_theta_cpu[i_det] << " " << det_pos_phi_cpu[i_det] << " " << det_pos_x_cpu[i_det] << " " << det_pos_y_cpu[i_det] << " " << det_pos_z_cpu[i_det]  << " " << radiation_data_cpu[idx++] << "\n";
 #elif defined(WARPX_DIM_XZ)
                 of << omegas_cpu[i_om] << " " << det_pos_phi_cpu[i_det] << " " << det_pos_x_cpu[i_det] << " " << det_pos_z_cpu[i_det]  << " " << radiation_data_cpu[++idx] << "\n";            
 #endif            
