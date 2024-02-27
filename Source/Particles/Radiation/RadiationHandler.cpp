@@ -454,7 +454,7 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename)
 
 void RadiationHandler::Integral_overtime(const amrex::Real dt)
 {
-    const auto factor = ablastr::constant::SI::q_e*dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
+    const auto factor = dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
   
     const auto how_many = m_det_pts[0]*m_det_pts[1];
 
