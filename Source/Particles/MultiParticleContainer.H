@@ -335,7 +335,7 @@ public:
 
     void RecordOldMomenta();
 
-    void Dump_radiations(amrex::Real dt);
+    void Dump_radiation(amrex::Real dt, int timestep);
     [[nodiscard]] int getSpeciesID (std::string product_str) const;
 
     amrex::Vector<std::unique_ptr<WarpXParticleContainer>>::iterator begin() {return allcontainers.begin();}

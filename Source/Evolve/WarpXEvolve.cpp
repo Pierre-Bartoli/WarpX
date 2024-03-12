@@ -254,9 +254,8 @@ WarpX::Evolve (int numsteps)
                                 *Bfield_aux[lev][0],*Bfield_aux[lev][1],
                                 *Bfield_aux[lev][2]);
                 }
-                mypc->Dump_radiations(dt[0]);
+                mypc->Dump_radiation(dt[0], step);
                 is_synchronized = true;
-                
             }
         }
 
