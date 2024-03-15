@@ -38,7 +38,8 @@ public:
         amrex::Real current_time, int timestep);
 
     void dump_radiation (amrex::Real dt, int timestep, const std::string& filename);
-
+    void Integral_overtime (const amrex::Real dt);
+    
     enum struct Type
     {
         cartesian,
@@ -48,8 +49,6 @@ public:
 private:
 
     void gather_and_write_radiation (const std::string& filename, const int timestep);
-
-    void Integral_overtime (const amrex::Real dt);
 
     // Frequency range
     amrex::Array<amrex::Real,2> m_omega_range;

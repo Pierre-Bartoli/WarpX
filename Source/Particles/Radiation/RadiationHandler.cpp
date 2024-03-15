@@ -135,7 +135,7 @@ namespace
 #else
             const auto thetas = amrex::Vector<amrex::Real>{0.0_rt};
             WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
-                det_points[1].size() == 1,
+                det_points[1] == 1,
                 "det_points[1].size() must be between 1 in 2D geometry" );
 #endif
 
@@ -333,7 +333,7 @@ void RadiationHandler::add_radiation_contribution(
 #if defined(WARPX_DIM_3D)
                     amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om, int i_det){
 #elif defined(WARPX_DIM_XZ)
-                    amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det){#endif
+                    amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det, int){
                         const int i_om  = i_om_det / (omega_points);
                         const int i_det = i_om_det % (omega_points);
 #endif
@@ -563,7 +563,7 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
 
 void RadiationHandler::Integral_overtime(const amrex::Real dt)
 {
-    const auto factor = dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
+    const auto factor = dt*dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
 
     const auto how_many = m_det_pts[0]*m_det_pts[1];
 
