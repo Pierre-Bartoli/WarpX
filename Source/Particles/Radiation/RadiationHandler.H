@@ -11,6 +11,8 @@
 
 #include "RadiationHandler_fwd.H"
 
+#include "Utils/Parser/IntervalsParser.H"
+
 #include "Particles/WarpXParticleContainer_fwd.H"
 
 #include <ablastr/math/Complex.H>
@@ -31,14 +33,23 @@ public:
     RadiationHandler (const amrex::Array<amrex::Real,3>& center);
 
     /* Perform the calculation of the radiation */
-    //void doRadiation (amrex::Real dt, MultiParticleContainer* mypc);
-    void add_radiation_contribution(const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc, amrex::Real current_time);
+    void add_radiation_contribution (
+        const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc,
+        amrex::Real current_time, int timestep);
 
-    void gather_and_write_radiation(const std::string& filename);
+    void dump_radiation (amrex::Real dt, int timestep, const std::string& filename);
 
-    void Integral_overtime(const amrex::Real dt);
+    enum struct Type
+    {
+        cartesian,
+        spherical
+    };
 
 private:
+
+    void gather_and_write_radiation (const std::string& filename, const int timestep);
+
+    void Integral_overtime (const amrex::Real dt);
 
     // Frequency range
     amrex::Array<amrex::Real,2> m_omega_range;
@@ -46,21 +57,31 @@ private:
     amrex::Gpu::DeviceVector<amrex::Real> m_omegas;
 
     // Dimensions of the detector
-    amrex::Array<amrex::Real,2> m_theta_range;
+    amrex::Array<amrex::Real,2> m_ang_range;
 
     amrex::Real m_det_distance;
     amrex::Array<int,2> m_det_pts;
     amrex::Array<amrex::Real,3> m_det_direction;
     amrex::Array<amrex::Real,3> m_det_orientation;
 
-    amrex::Gpu::DeviceVector<amrex::Real> det_pos_x;
-    amrex::Gpu::DeviceVector<amrex::Real> det_pos_y;
-    amrex::Gpu::DeviceVector<amrex::Real> det_pos_z;
-    amrex::Gpu::DeviceVector<amrex::Real> det_pos_theta;
-    amrex::Gpu::DeviceVector<amrex::Real> det_pos_phi;
+    amrex::Array<amrex::Vector<amrex::Real>,2> m_grid;
+
+    amrex::Gpu::DeviceVector<amrex::Real> m_det_x;
+    amrex::Gpu::DeviceVector<amrex::Real> m_det_y;
+    amrex::Gpu::DeviceVector<amrex::Real> m_det_z;
 
     amrex::Gpu::DeviceVector<ablastr::math::Complex> m_radiation_data;
     amrex::Gpu::DeviceVector<amrex::Real> m_radiation_calculation;
+
+    Type m_radiation_type;
+
+    utils::parser::IntervalsParser m_output_intervals_parser;
+
+    bool m_has_start;
+    bool m_has_stop;
+
+    int m_step_start;
+    int m_step_stop;
 
 };
 #endif // WARPX_PARTICLES_RADIATION_H

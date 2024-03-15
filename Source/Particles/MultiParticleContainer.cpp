@@ -978,21 +978,21 @@ void MultiParticleContainer::ScrapeParticles (const amrex::Vector<const amrex::M
 #endif
 }
 
-void MultiParticleContainer::doRadiation (const amrex::Real dt, amrex::Real cur_time)
+void MultiParticleContainer::doRadiation (
+    const amrex::Real dt, amrex::Real cur_time, const int timestep)
 {
     if (m_at_least_one_has_radiation){
     for (auto& pc : allcontainers) {
         if (pc->has_radiation()){
-            m_p_radiation_handler->add_radiation_contribution(dt,pc,cur_time);
+            m_p_radiation_handler->add_radiation_contribution(dt,pc,cur_time, timestep);
             }
         }
     }
 }
 
-void MultiParticleContainer::Dump_radiations(const amrex::Real dt){
+void MultiParticleContainer::Dump_radiation(const amrex::Real dt, const int timestep){
     if (m_at_least_one_has_radiation){
-            m_p_radiation_handler->Integral_overtime(dt);
-            m_p_radiation_handler->gather_and_write_radiation("Radiation");
+            m_p_radiation_handler->dump_radiation(dt, timestep, "Radiation");
         }
 }
 #ifdef WARPX_QED

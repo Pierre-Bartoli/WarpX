@@ -13,10 +13,17 @@
 #include "Utils/WarpXConst.H"
 #include "Utils/TextMsg.H"
 
+#include "ablastr/warn_manager/WarnManager.H"
+
 #include <AMReX_Algorithm.H>
 
 #ifdef AMREX_USE_OMP
 #   include <omp.h>
+#endif
+
+#ifdef WARPX_USE_OPENPMD
+#   include "Diagnostics/OpenPMDHelpFunction.H"
+#   include <openPMD/openPMD.hpp>
 #endif
 
 #include <tuple>
@@ -26,14 +33,13 @@ using namespace amrex;
 using namespace ablastr::math;
 using namespace utils::parser;
 
-enum class RadiationType
-{
-    cartesian,
-    spherical
-};
-auto const m_radiation_type  = std::map<std::string, RadiationType>{
-    {"cartesian", RadiationType::cartesian},
-    {"spherical", RadiationType::spherical}
+#ifdef WARPX_USE_OPENPMD
+    namespace io = openPMD;
+#endif
+
+auto const radiation_type_map  = std::map<std::string, RadiationHandler::Type>{
+    {"cartesian", RadiationHandler::Type::cartesian},
+    {"spherical", RadiationHandler::Type::spherical}
 };
 
 namespace
@@ -44,57 +50,56 @@ namespace
         const amrex::Real distance,
         const amrex::Array<amrex::Real,3>& orientation,
         const amrex::Array<int,2>& det_points,
-        const amrex::Array<amrex::Real,2>& theta_range,
-        const std::string radiation_type)
+        const amrex::Array<amrex::Real,2>& ang_range,
+        const RadiationHandler::Type radiation_type)
     {
-#if defined(WARPX_DIM_3D)
-        const auto ndims = 3;
-#elif defined(WARPX_DIM_XZ)
-        const auto ndims = 2;
-#endif
+        WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
+            direction[0]*orientation[0] +
+            direction[1]*orientation[1] +
+            direction[2]*orientation[2] == 0,
+            "Radiation detector orientation cannot be aligned with detector direction");
+
+        const auto one_over_direction = 1.0_rt/std::sqrt(
+            direction[0]*direction[0]+direction[1]*direction[1]+direction[2]*direction[2]);
+        const auto norm_direction = amrex::Array<amrex::Real,3>{
+            direction[0]*one_over_direction,
+            direction[1]*one_over_direction,
+            direction[2]*one_over_direction};
+
+        auto u = amrex::Array<amrex::Real,3>{
+            orientation[0] - direction[0]*orientation[0],
+            orientation[1] - direction[1]*orientation[1],
+            orientation[2] - direction[2]*orientation[2]};
+        const auto one_over_u = 1.0_rt/std::sqrt(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
+        u[0] *= one_over_u;
+        u[1] *= one_over_u;
+        u[2] *= one_over_u;
+
+        auto v = amrex::Array<amrex::Real,3>{
+            direction[1]*u[2]-direction[2]*u[1],
+            direction[2]*u[0]-direction[0]*u[2],
+            direction[0]*u[1]-direction[1]*u[0]};
+        const auto one_over_v = 1.0_rt/std::sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+        v[0] *= one_over_v;
+        v[1] *= one_over_v;
+        v[2] *= one_over_v;
+
         const auto how_many = det_points[0]*det_points[1];
-#if defined(WARPX_DIM_3D)
-        auto host_det_y = amrex::Vector<amrex::Real>(how_many);
-        auto host_det_theta = amrex::Vector<amrex::Real>(how_many);
-#endif
+
         auto host_det_x = amrex::Vector<amrex::Real>(how_many);
+        auto host_det_y = amrex::Vector<amrex::Real>(how_many);
         auto host_det_z = amrex::Vector<amrex::Real>(how_many);
-        auto host_det_phi = amrex::Vector<amrex::Real>(how_many);
-        if(m_radiation_type.at(radiation_type) == RadiationType::cartesian){
+
+        amrex::Array<amrex::Vector<amrex::Real>,2> grid;
+
+        if(radiation_type == RadiationHandler::Type::cartesian){
 #if defined(WARPX_DIM_3D)
-            WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
-                direction[0]*orientation[0] +
-                direction[1]*orientation[1] +
-                direction[2]*orientation[2] == 0,
-                "Radiation detector orientation cannot be aligned with detector direction");
-            auto u = amrex::Array<amrex::Real,3>{
-                orientation[0] - direction[0]*orientation[0],
-                orientation[1] - direction[1]*orientation[1],
-                orientation[2] - direction[2]*orientation[2]};
-            const auto one_over_u = 1.0_rt/std::sqrt(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
-            u[0] *= one_over_u;
-            u[1] *= one_over_u;
-            u[2] *= one_over_u;
-            auto v = amrex::Array<amrex::Real,3>{
-                direction[1]*u[2]-direction[2]*u[1],
-                direction[2]*u[0]-direction[0]*u[2],
-                direction[0]*u[1]-direction[1]*u[0]};
-            const auto one_over_v = 1.0_rt/std::sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
-            v[0] *= one_over_v;
-            v[1] *= one_over_v;
-            v[2] *= one_over_v;
             auto us = amrex::Vector<amrex::Real>(det_points[0]);
-            const auto ulim = distance*std::tan(theta_range[0]*0.5_rt);
+            const auto ulim = distance*std::tan(ang_range[0]*0.5_rt);
             amrex::linspace(us.begin(), us.end(), -ulim,ulim);
             auto vs = amrex::Vector<amrex::Real>(det_points[1]);
-            const auto vlim = distance*std::tan(theta_range[1]*0.5_rt);
+            const auto vlim = distance*std::tan(ang_range[1]*0.5_rt);
             amrex::linspace(vs.begin(), vs.end(), -vlim, vlim);
-            const auto one_over_direction = 1.0_rt/std::sqrt(
-                direction[0]*direction[0]+direction[1]*direction[1]+direction[2]*direction[2]);
-            const auto norm_direction = amrex::Array<amrex::Real,3>{
-                direction[0]*one_over_direction,
-                direction[1]*one_over_direction,
-                direction[2]*one_over_direction};
             for (int i = 0; i < det_points[0]; ++i)
             {
                 for (int j = 0; j < det_points[1]; ++j)
@@ -105,79 +110,58 @@ namespace
                     host_det_x[i*det_points[1] + j] = center[0] + x;
                     host_det_y[i*det_points[1] + j] = center[1] + y;
                     host_det_z[i*det_points[1] + j] = center[2] + z;
-                    host_det_theta[i*det_points[1] + j] = std::acos(z/distance);
-                    host_det_phi[i*det_points[1] + j] = std::atan2(y, x) + ablastr::constant::math::pi;
                 }
             }
+            grid[0] = us;
+            grid[1] = vs;
+#else
+    WARPX_ABORT_WITH_MESSAGE("Using cartesian radiation detector is only possible in 3D.");
 #endif
         }
-        if(m_radiation_type.at(radiation_type) == RadiationType::spherical){
+        if(radiation_type == RadiationHandler::Type::spherical){
+            WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
+                ang_range[0] >= 0 && ang_range[0] <= 2*ablastr::constant::math::pi,
+                "angle_aperture[0] (phi) must be between 0 and 2*pi" );
+            WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
+                ang_range[1] >= 0 && ang_range[1] <= ablastr::constant::math::pi,
+                "angle_aperture[1] (theta) must be between 0 and pi" );
+
+            auto phis = amrex::Vector<amrex::Real>(det_points[0]);
+            amrex::linspace(phis.begin(), phis.end(),-ang_range[0]*0.5_rt, ang_range[0]*0.5_rt);
+
 #if defined(WARPX_DIM_3D)
-            const auto Ntheta = det_points[0];
-            const auto Nphi = det_points[1];
-            const auto dtheta = theta_range[0]/Ntheta;
-            const auto dphi = theta_range[1]/Nphi;
-            const auto thetaOrigin = std::acos(direction[2]) - Ntheta/2*dtheta;
-            const auto phiOrigin = std::atan2(direction[1], direction[0]) - Nphi/2*dphi;
-            for (int i = 0; i < det_points[0]; ++i)
-            {
-                for (int j = 0; j < det_points[1]; ++j)
-                {
-                    auto theta = thetaOrigin + i*dtheta;
-                    auto phi = phiOrigin + j*dphi;
-                    //theta is in [0, pi] and phi is in [0, 2*pi]
-                    if(theta < 0){
-                        theta *= -1;
-                        phi += ablastr::constant::math::pi;
-                    }
-                    phi -= 2*ablastr::constant::math::pi*std::floor(phi/(2*ablastr::constant::math::pi));
-                    host_det_x[i*det_points[1] + j] = center[0] + distance*std::sin(theta)*std::cos(phi);
-                    host_det_y[i*det_points[1] + j] = center[1] + distance*std::sin(theta)*std::sin(phi);
-                    host_det_z[i*det_points[1] + j] = center[2] + distance*std::cos(theta);
-                    host_det_theta[i*det_points[1] + j] = theta;
-                    host_det_phi[i*det_points[1] + j] = phi;
-                }
-            }
-#elif defined(WARPX_DIM_XZ)
-            const auto Nphi = det_points[0];
-            const auto dphi = theta_range[0]/Nphi;
-            const auto phiOrigin = std::atan2(direction[1], direction[0]) - Nphi/2*dphi;
-            for (int i = 0; i < det_points[0]; ++i)
-            {
-                auto phi = phiOrigin + i*dphi;
-                //phi is in [0, 2*pi]
-                phi -= 2*ablastr::constant::math::pi*std::floor(phi/(2*ablastr::constant::math::pi));
-                host_det_x[i] = center[0] + distance*std::cos(phi);
-                host_det_z[i] = center[1] + distance*std::sin(phi);
-                host_det_phi[i] = phi;
-            }
+            auto thetas = amrex::Vector<amrex::Real>(det_points[1]);
+            amrex::linspace(thetas.begin(), thetas.end(),-ang_range[1]*0.5_rt, ang_range[1]*0.5_rt);
+#else
+            const auto thetas = amrex::Vector<amrex::Real>{0.0_rt};
+            WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
+                det_points[1].size() == 1,
+                "det_points[1].size() must be between 1 in 2D geometry" );
 #endif
+
+        for (int i = 0; i < det_points[0]; ++i)
+        {
+            for (int j = 0; j < det_points[1]; ++j)
+            {
+                const auto [sin_phi, cos_phi] = amrex::Math::sincos(phis[i]);
+                const auto [sin_theta, cos_theta] = amrex::Math::sincos(thetas[j]);
+
+                const auto wx = norm_direction[0]*cos_theta*sin_phi + u[0]*sin_theta + v[0]*cos_theta*cos_phi;
+                const auto wy = norm_direction[1]*cos_theta*sin_phi + u[1]*sin_theta + v[1]*cos_theta*cos_phi;
+                const auto wz = norm_direction[2]*cos_theta*sin_phi + u[2]*sin_theta + v[2]*cos_theta*cos_phi;
+
+                const int idx = i*det_points[1] + j;
+                host_det_x[idx] = center[0] + distance*wx;
+                host_det_y[idx] = center[1] + distance*wy;
+                host_det_z[idx] = center[2] + distance*wz;
+            }
         }
-#if defined(WARPX_DIM_3D)
-        auto gpu_det_y = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
-        auto gpu_det_theta = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
-#endif
-        auto gpu_det_x = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
-        auto gpu_det_z = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
-        auto gpu_det_phi = amrex::Gpu::DeviceVector<amrex::Real>(how_many);
-#if defined(WARPX_DIM_3D)
-        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-            host_det_y.begin(), host_det_y.end(), gpu_det_y.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-            host_det_theta.begin(), host_det_theta.end(), gpu_det_theta.begin());
-#endif
-        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-            host_det_x.begin(), host_det_x.end(), gpu_det_x.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-            host_det_z.begin(), host_det_z.end(), gpu_det_z.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-            host_det_phi.begin(), host_det_phi.end(), gpu_det_phi.begin());
-        amrex::Gpu::Device::streamSynchronize();
-#if defined(WARPX_DIM_3D)
-        return std::make_tuple(gpu_det_x, gpu_det_y, gpu_det_z, gpu_det_theta, gpu_det_phi);
-#elif defined(WARPX_DIM_XZ)
-        return std::make_tuple(gpu_det_x, gpu_det_z, gpu_det_phi);
-#endif
+
+        grid[0] = phis;
+        grid[1] = thetas;
+    }
+
+        return std::make_tuple(host_det_x, host_det_y, host_det_z, grid);
     }
 }
 
@@ -186,8 +170,8 @@ namespace
 
 RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
 {
-#if defined  WARPX_DIM_RZ
-    WARPX_ABORT_WITH_MESSAGE("Radiation is not supported yet with RZ.");
+#if defined(WARPX_DIM_RZ) || defined(WARPX_DIM_1D)
+    WARPX_ABORT_WITH_MESSAGE("Radiation is not supported yet in RZ and 1D.");
 #endif
 
     // Read in radiation input
@@ -196,7 +180,10 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     //type of detector
     std::string radiation_type = "spherical";
     pp_radiation.query("detector_type", radiation_type);
-    WARPX_ALWAYS_ASSERT_WITH_MESSAGE(m_radiation_type.find(radiation_type) != m_radiation_type.end(), radiation_type + " detector type is not supported yet");
+    WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
+        radiation_type_map.find(radiation_type) != radiation_type_map.end(),
+        radiation_type + " detector type is not supported yet");
+    m_radiation_type = radiation_type_map.at(radiation_type);
 
     //Resolution in frequency of the detector
     auto omega_range = std::vector<amrex::Real>(2);
@@ -204,9 +191,9 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     std::copy(omega_range.begin(), omega_range.end(), m_omega_range.begin());
     getWithParser(pp_radiation, "omega_points", m_omega_points);
     //Angle theta AND phi
-    auto theta_range = std::vector<amrex::Real>(2);
-    getArrWithParser(pp_radiation, "angle_aperture", theta_range);
-    std::copy(theta_range.begin(), theta_range.end(), m_theta_range.begin());
+    auto ang_range = std::vector<amrex::Real>(2);
+    getArrWithParser(pp_radiation, "angle_aperture", ang_range);
+    std::copy(ang_range.begin(), ang_range.end(), m_ang_range.begin());
 
     //Detector parameters
     auto det_pts = std::vector<int>(2);
@@ -218,23 +205,35 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
 
     auto det_direction = std::vector<amrex::Real>(3);
     getArrWithParser(pp_radiation, "detector_direction", det_direction);
+#if defined(WARPX_DIM_XZ)
+    det_direction[1] = 0.0;
+#endif
     std::copy(det_direction.begin(), det_direction.end(), m_det_direction.begin());
 
+#if defined(WARPX_DIM_XZ)
+    m_det_orientation = amrex::Array<amrex::Real,3>{0.0,1.0,0.0};
+#else
     auto det_orientation = std::vector<amrex::Real>(3);
     getArrWithParser(pp_radiation, "detector_orientation", det_orientation);
     std::copy(det_orientation.begin(), det_orientation.end(), m_det_orientation.begin());
-
+#endif
 
     getWithParser(pp_radiation, "detector_distance", m_det_distance);
-#if defined(WARPX_DIM_3D)
-    std::tie(det_pos_x, det_pos_y, det_pos_z, det_pos_theta, det_pos_phi) = compute_detector_positions(
+
+    const auto [det_x, det_y, det_z, grid] = compute_detector_positions(
         center, m_det_direction, m_det_distance,
-        m_det_orientation, m_det_pts, m_theta_range, radiation_type);
-#elif defined(WARPX_DIM_XZ)
-    std::tie(det_pos_x, det_pos_z, det_pos_phi) = compute_detector_positions(
-        center, m_det_direction, m_det_distance,
-        m_det_orientation, m_det_pts, m_theta_range, radiation_type);
-#endif
+        m_det_orientation, m_det_pts, m_ang_range, m_radiation_type);
+    m_grid = grid;
+
+    m_det_x = amrex::Gpu::DeviceVector<amrex::Real>(det_x.size());
+    m_det_y = amrex::Gpu::DeviceVector<amrex::Real>(det_y.size());
+    m_det_z = amrex::Gpu::DeviceVector<amrex::Real>(det_z.size());
+    amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+        det_x.begin(), det_x.end(), m_det_x.begin());
+    amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+        det_y.begin(), det_y.end(), m_det_y.begin());
+    amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+        det_z.begin(), det_z.end(), m_det_z.begin());
 
     constexpr auto ncomp = 3;
     m_radiation_data = amrex::Gpu::DeviceVector<ablastr::math::Complex>(m_det_pts[0]*m_det_pts[1]*m_omega_points*ncomp);
@@ -245,19 +244,42 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
             t_omegas.begin(), t_omegas.end(), m_omegas.begin());
     amrex::Gpu::Device::streamSynchronize();
+
+
+    m_has_start = queryWithParser(pp_radiation, "step_start", m_step_start);
+    m_has_stop  = queryWithParser(pp_radiation, "step_stop", m_step_stop);
+
+    if (m_has_start || m_has_stop){
+        ablastr::warn_manager::WMRecordWarning(
+            "Radiation",
+            "Radiation will be integrated from step " + std::to_string(m_step_start) +
+            " to step " + std::to_string(m_step_stop),
+            ablastr::warn_manager::WarnPriority::low
+        );
+    }
+
+    std::vector<std::string> radiation_output_intervals_string = {"0"};
+    pp_radiation.queryarr("output_intervals", radiation_output_intervals_string);
+    m_output_intervals_parser = utils::parser::IntervalsParser(radiation_output_intervals_string);
 }
 
 
-void RadiationHandler::add_radiation_contribution
-    (const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc, amrex::Real current_time)
-    {
+void RadiationHandler::add_radiation_contribution(
+    const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc,
+    const amrex::Real current_time, const int timestep)
+{
+    if (((m_has_start) && (timestep < m_step_start)) ||
+        ((m_has_stop) && (timestep > m_step_stop))) {
+        return;
+    }
+
         for (int lev = 0; lev <= pc->finestLevel(); ++lev)
         {
 #ifdef AMREX_USE_OMP
             #pragma omp parallel
 #endif
             {
-                
+
                 for (WarpXParIter pti(*pc, lev); pti.isValid(); ++pti)
                 {
 
@@ -271,7 +293,7 @@ void RadiationHandler::add_radiation_contribution
                     const auto index = std::make_pair(pti.index(), pti.LocalTileIndex());
                     auto& part = pc->GetParticles(lev)[index];
                     auto& soa = part.GetStructOfArrays();
- 
+
                     const auto* p_ux_old = soa.GetRealData(pc->GetRealCompIndex("old_u_x")).data();
                     const auto* p_uy_old = soa.GetRealData(pc->GetRealCompIndex("old_u_y")).data();
                     const auto* p_uz_old = soa.GetRealData(pc->GetRealCompIndex("old_u_z")).data();
@@ -279,13 +301,13 @@ void RadiationHandler::add_radiation_contribution
                     auto GetPosition = GetParticlePosition<PIdx>(pti);
                     auto const q = pc->getCharge();
 
-                    const auto how_many_det_pos = static_cast<int>(det_pos_x.size());
+                    const auto how_many_det_pos = static_cast<int>(m_det_x.size());
 
                     const auto p_omegas = m_omegas.dataPtr();
 
-                    const auto p_det_pos_x = det_pos_x.dataPtr();
-                    const auto p_det_pos_y = det_pos_y.dataPtr();
-                    const auto p_det_pos_z = det_pos_z.dataPtr();
+                    const auto p_det_pos_x = m_det_x.dataPtr();
+                    const auto p_det_pos_y = m_det_y.dataPtr();
+                    const auto p_det_pos_z = m_det_z.dataPtr();
 
                     auto p_radiation_data = m_radiation_data.dataPtr();
 
@@ -296,11 +318,25 @@ void RadiationHandler::add_radiation_contribution
                     constexpr auto inv_c2 = 1._prt/(PhysConst::c*PhysConst::c);
 
                     WARPX_ALWAYS_ASSERT_WITH_MESSAGE((np-1) == static_cast<int>(np-1), "too many particles!");
+
+#if defined(WARPX_DIM_3D)
                     const auto np_omegas_detpos = amrex::Box{
                         amrex::IntVect{0,0,0},
                         amrex::IntVect{static_cast<int>(np-1), omega_points-1, how_many_det_pos-1}};
+#elif defined(WARPX_DIM_XZ)
+                    const auto np_omegas_detpos = amrex::Box{
+                        amrex::IntVect{0,0},
+                        amrex::IntVect{static_cast<int>(np-1), ((omega_points) * (how_many_det_pos) - 1)}};
+#endif
 
+
+#if defined(WARPX_DIM_3D)
                     amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om, int i_det){
+#elif defined(WARPX_DIM_XZ)
+                    amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det){#endif
+                        const int i_om  = i_om_det / (omega_points);
+                        const int i_det = i_om_det % (omega_points);
+#endif
                         amrex::ParticleReal xp, yp, zp;
                         GetPosition.AsStored(ip,xp, yp, zp);
 
@@ -312,7 +348,7 @@ void RadiationHandler::add_radiation_contribution
 
                         auto const one_over_gamma = 1._prt/std::sqrt(1.0_rt + u2*inv_c2);
                         auto const one_over_gamma_c = one_over_gamma*inv_c;
-                     
+
                         const auto bx = ux*one_over_gamma_c;
                         const auto by = uy*one_over_gamma_c;
                         const auto bz = uz*one_over_gamma_c;
@@ -376,7 +412,7 @@ void RadiationHandler::add_radiation_contribution
                             cy = 0.0;
                             cz = 0.0;
                         }*/
-                        
+
                         const int ncomp = 3;
                         const int idx0 = (i_om*how_many_det_pos + i_det)*ncomp;
                         const int idx1 = idx0 + 1;
@@ -389,14 +425,21 @@ void RadiationHandler::add_radiation_contribution
                         amrex::HostDevice::Atomic::Add(&p_radiation_data[idx2].m_real, cz.m_real);
                         amrex::HostDevice::Atomic::Add(&p_radiation_data[idx2].m_imag, cz.m_imag);
                     });
-                }   
+                }
             }
         }
     }
 
-void RadiationHandler::gather_and_write_radiation(const std::string& filename)
+void RadiationHandler::dump_radiation (
+    amrex::Real dt, int timestep, const std::string& filename)
 {
+    if (!m_output_intervals_parser.contains(timestep+1)){ return; }
+    Integral_overtime(dt);
+    gather_and_write_radiation(filename, timestep);
+}
 
+void RadiationHandler::gather_and_write_radiation(const std::string& filename, [[maybe_unused]] const int timestep)
+{
     auto radiation_data_cpu = amrex::Vector<amrex::Real>(m_det_pts[0]*m_det_pts[1]*m_omega_points);
     amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
         m_radiation_calculation.begin(), m_radiation_calculation.end(), radiation_data_cpu.begin());
@@ -404,58 +447,124 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename)
 
     amrex::ParallelDescriptor::ReduceRealSum(radiation_data_cpu.data(), radiation_data_cpu.size());
 
-    if (amrex::ParallelDescriptor::IOProcessor() ){
-        auto of = std::ofstream(filename, std::ios::binary);
+    if ( !ParallelDescriptor::IOProcessor() ) { return; }
 
-        const auto how_many = m_det_pts[0]*m_det_pts[1];
+    const auto how_many = m_det_pts[0]*m_det_pts[1];
 
+    auto det_pos_x_cpu = amrex::Vector<amrex::Real>(how_many);
+    auto det_pos_y_cpu = amrex::Vector<amrex::Real>(how_many);
+    auto det_pos_z_cpu = amrex::Vector<amrex::Real>(how_many);
+    auto omegas_cpu = amrex::Vector<amrex::Real>(m_omega_points);
+
+    amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+        m_det_x.begin(), m_det_x.end(), det_pos_x_cpu.begin());
+    amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+        m_det_y.begin(), m_det_y.end(), det_pos_y_cpu.begin());
+    amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+        m_det_z.begin(), m_det_z.end(), det_pos_z_cpu.begin());
+    amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+        m_omegas.begin(), m_omegas.end(), omegas_cpu.begin());
+    amrex::Gpu::streamSynchronize();
+
+#ifdef WARPX_USE_OPENPMD
+    constexpr int file_min_digits = 6;
+    const auto openpmd_backend = WarpXOpenPMDFileType();
+    const auto file_suffix = std::string("_%0") + std::to_string(file_min_digits) + std::string("T");
+    auto opmd_file_path = filename;
+    opmd_file_path.append("/openpmd").append(file_suffix).append(".").append(openpmd_backend);
+
+    // transform paths for Windows
+    #ifdef _WIN32
+        opmd_file_path = openPMD::auxiliary::replace_all(opmd_file_path, "/", "\\");
+    #endif
+
+    // Create the OpenPMD series
+    auto series = io::Series(
+        opmd_file_path,
+        io::Access::CREATE);
+    auto i = series.iterations[timestep+1];
+
+    // record
+    auto f_rad = i.meshes["radiation_data"];
+    auto f_omegas = i.meshes["omegas"];
+    auto f_g1 = i.meshes["g1"];
+    auto f_g2 = i.meshes["g2"];
+
+    // meta data
+    f_rad.setAxisLabels({"i_om", "i_det", "j_det"});
+    f_omegas.setAxisLabels({"idx"});
+    f_g1.setAxisLabels({"idx"});
+    f_g2.setAxisLabels({"idx"});
+    f_rad.setGridSpacing<amrex::Real>({1,1,1});
+    f_omegas.setGridSpacing<amrex::Real>({1});
+    f_g1.setGridSpacing<amrex::Real>({1});
+    f_g2.setGridSpacing<amrex::Real>({1});
+    f_rad.setGridGlobalOffset(std::vector<amrex::Real>{0,0,0});
+    f_omegas.setGridGlobalOffset(std::vector<amrex::Real>{0});
+    f_g1.setGridGlobalOffset(std::vector<amrex::Real>{0});
+    f_g2.setGridGlobalOffset(std::vector<amrex::Real>{0});
+
+    // record components
+    auto rad_data = f_rad[io::RecordComponent::SCALAR];
+    auto omegas = f_omegas[io::RecordComponent::SCALAR];
+    auto g1s = f_g1[io::RecordComponent::SCALAR];
+    auto g2s = f_g2[io::RecordComponent::SCALAR];
+
+    // prepare datasets
+    const auto dtype = io::determineDatatype<amrex::Real>();
+    rad_data.setPosition<amrex::Real>({0.0,0.0,0.0});
+    omegas.setPosition<amrex::Real>({0.0});
+    g1s.setPosition<amrex::Real>({0.0});
+    g2s.setPosition<amrex::Real>({0.0});
+    rad_data.resetDataset(io::Dataset(dtype,
+        {(long unsigned int) m_omega_points, (long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]}));
+    omegas.resetDataset(io::Dataset(dtype,
+        {(long unsigned int) m_omega_points}));
+    g1s.resetDataset(io::Dataset(dtype,
+        {(long unsigned int) m_det_pts[0]}));
+    g2s.resetDataset(io::Dataset(dtype,
+        {(long unsigned int) m_det_pts[1]}));
+
+    // write data
+    rad_data.storeChunkRaw(
+        radiation_data_cpu.data(),
+        {0,0,0}, {(long unsigned int) m_omega_points, (long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
+    omegas.storeChunkRaw(
+        omegas_cpu.data(),
+        {0}, {(long unsigned int) m_omega_points});
+    g1s.storeChunkRaw(
+        m_grid[0].data(),
+        {0}, {(long unsigned int) m_grid[0].size()});
+    g2s.storeChunkRaw(
+        m_grid[1].data(),
+        {0}, {(long unsigned int) m_grid[1].size()});
+    series.flush();
+#else
+
+    auto of = std::ofstream(filename, std::ios::binary);
+
+    int idx = 0;
+    for(int i_om=0; i_om < m_omega_points; ++i_om){
+        for (int i_det = 0; i_det < how_many; ++i_det)
+        {
 #if defined(WARPX_DIM_3D)
-        auto det_pos_y_cpu = amrex::Vector<amrex::Real>(how_many);
-        auto det_pos_theta_cpu = amrex::Vector<amrex::Real>(how_many);
-#endif
-
-        auto det_pos_x_cpu = amrex::Vector<amrex::Real>(how_many);
-        auto det_pos_z_cpu = amrex::Vector<amrex::Real>(how_many);
-        auto det_pos_phi_cpu = amrex::Vector<amrex::Real>(how_many);
-        auto omegas_cpu = amrex::Vector<amrex::Real>(m_omega_points);
-
-#if defined(WARPX_DIM_3D)
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-            det_pos_y.begin(), det_pos_y.end(), det_pos_y_cpu.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-            det_pos_theta.begin(), det_pos_theta.end(), det_pos_theta_cpu.begin());
-#endif
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-            det_pos_x.begin(), det_pos_x.end(), det_pos_x_cpu.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-            det_pos_z.begin(), det_pos_z.end(), det_pos_z_cpu.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-            det_pos_phi.begin(), det_pos_phi.end(), det_pos_phi_cpu.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-            m_omegas.begin(), m_omegas.end(), omegas_cpu.begin());
-        amrex::Gpu::streamSynchronize();
-
-
-        int idx = 0;
-        for(int i_om=0; i_om < m_omega_points; ++i_om){
-            for (int i_det = 0; i_det < how_many; ++i_det)
-            {
-#if defined(WARPX_DIM_3D)
-                of << omegas_cpu[i_om] << " " << det_pos_theta_cpu[i_det] << " " << det_pos_phi_cpu[i_det] << " " << det_pos_x_cpu[i_det] << " " << det_pos_y_cpu[i_det] << " " << det_pos_z_cpu[i_det]  << " " << radiation_data_cpu[idx++] << "\n";
+            of << omegas_cpu[i_om] << " "  << det_pos_x_cpu[i_det] << " " << det_pos_y_cpu[i_det] << " " << det_pos_z_cpu[i_det]  << " " << radiation_data_cpu[idx++] << "\n";
 #elif defined(WARPX_DIM_XZ)
-                of << omegas_cpu[i_om] << " " << det_pos_phi_cpu[i_det] << " " << det_pos_x_cpu[i_det] << " " << det_pos_z_cpu[i_det]  << " " << radiation_data_cpu[++idx] << "\n";            
-#endif            
-            }
+            of << omegas_cpu[i_om] << " " << det_pos_x_cpu[i_det] << " " << det_pos_z_cpu[i_det]  << " " << radiation_data_cpu[idx++] << "\n";
+#endif
         }
-
-        of.close();
     }
+
+    of.close();
+
+#endif
+
 }
 
 void RadiationHandler::Integral_overtime(const amrex::Real dt)
 {
     const auto factor = dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
-  
+
     const auto how_many = m_det_pts[0]*m_det_pts[1];
 
     auto* const p_radiation_data = m_radiation_data.dataPtr();
@@ -463,7 +572,7 @@ void RadiationHandler::Integral_overtime(const amrex::Real dt)
     m_radiation_calculation = amrex::Gpu::DeviceVector<amrex::Real>(how_many*m_omega_points);
     auto* const p_radiation_calculation = m_radiation_calculation.dataPtr();
 
-    amrex::ParallelFor(m_omega_points*how_many, 
+    amrex::ParallelFor(m_omega_points*how_many,
         [=] AMREX_GPU_DEVICE(int idx){
             const int idx0 = idx*3;
             const int idx1 = idx0 + 1;
