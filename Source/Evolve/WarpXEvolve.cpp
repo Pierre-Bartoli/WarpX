@@ -254,7 +254,6 @@ WarpX::Evolve (int numsteps)
                                 *Bfield_aux[lev][0],*Bfield_aux[lev][1],
                                 *Bfield_aux[lev][2]);
                 }
-                mypc->Dump_radiation(dt[0], step);
                 is_synchronized = true;
             }
         }
@@ -375,6 +374,8 @@ WarpX::Evolve (int numsteps)
         }
         multi_diags->FilterComputePackFlush( step );
 
+        mypc->Dump_radiation(dt[0], step);
+
         // execute afterdiagnostic callbacks
         ExecutePythonCallback("afterdiagnostics");
 
@@ -444,12 +445,7 @@ WarpX::OneStep_nosub (Real cur_time)
 
     //Radiation contribution at each timestep
    //Only level 0 is supported
-    mypc->doRadiation(dt[0],cur_time);
-
-
-
-
-
+    mypc->doRadiation(dt[0],cur_time, istep[0]);
 
     ExecutePythonCallback("afterdeposition");
 

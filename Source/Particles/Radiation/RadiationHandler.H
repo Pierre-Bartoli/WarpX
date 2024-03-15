@@ -11,6 +11,8 @@
 
 #include "RadiationHandler_fwd.H"
 
+#include "Utils/Parser/IntervalsParser.H"
+
 #include "Particles/WarpXParticleContainer_fwd.H"
 
 #include <ablastr/math/Complex.H>
@@ -31,12 +33,11 @@ public:
     RadiationHandler (const amrex::Array<amrex::Real,3>& center);
 
     /* Perform the calculation of the radiation */
-    //void doRadiation (amrex::Real dt, MultiParticleContainer* mypc);
-    void add_radiation_contribution(const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc, amrex::Real current_time);
+    void add_radiation_contribution (
+        const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc,
+        amrex::Real current_time, int timestep);
 
-    void gather_and_write_radiation(const std::string& filename, const int timestep);
-
-    void Integral_overtime(const amrex::Real dt);
+    void dump_radiation (amrex::Real dt, int timestep, const std::string& filename);
 
     enum struct Type
     {
@@ -45,6 +46,10 @@ public:
     };
 
 private:
+
+    void gather_and_write_radiation (const std::string& filename, const int timestep);
+
+    void Integral_overtime (const amrex::Real dt);
 
     // Frequency range
     amrex::Array<amrex::Real,2> m_omega_range;
@@ -69,6 +74,14 @@ private:
     amrex::Gpu::DeviceVector<amrex::Real> m_radiation_calculation;
 
     Type m_radiation_type;
+
+    utils::parser::IntervalsParser m_output_intervals_parser;
+
+    bool m_has_start;
+    bool m_has_stop;
+
+    int m_step_start;
+    int m_step_stop;
 
 };
 #endif // WARPX_PARTICLES_RADIATION_H

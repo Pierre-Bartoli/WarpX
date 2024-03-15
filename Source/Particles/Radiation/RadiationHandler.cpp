@@ -13,6 +13,8 @@
 #include "Utils/WarpXConst.H"
 #include "Utils/TextMsg.H"
 
+#include "ablastr/warn_manager/WarnManager.H"
+
 #include <AMReX_Algorithm.H>
 
 #ifdef AMREX_USE_OMP
@@ -209,7 +211,7 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     std::copy(det_direction.begin(), det_direction.end(), m_det_direction.begin());
 
 #if defined(WARPX_DIM_XZ)
-    m_det_orientation = std::vector<amrex::Real>{0.0,1.0,0.0};
+    m_det_orientation = amrex::Array<amrex::Real,3>{0.0,1.0,0.0};
 #else
     auto det_orientation = std::vector<amrex::Real>(3);
     getArrWithParser(pp_radiation, "detector_orientation", det_orientation);
@@ -232,7 +234,6 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
         det_y.begin(), det_y.end(), m_det_y.begin());
     amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
         det_z.begin(), det_z.end(), m_det_z.begin());
-    amrex::Gpu::Device::streamSynchronize();
 
     constexpr auto ncomp = 3;
     m_radiation_data = amrex::Gpu::DeviceVector<ablastr::math::Complex>(m_det_pts[0]*m_det_pts[1]*m_omega_points*ncomp);
@@ -243,12 +244,35 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
             t_omegas.begin(), t_omegas.end(), m_omegas.begin());
     amrex::Gpu::Device::streamSynchronize();
+
+
+    m_has_start = queryWithParser(pp_radiation, "step_start", m_step_start);
+    m_has_stop  = queryWithParser(pp_radiation, "step_stop", m_step_stop);
+
+    if (m_has_start || m_has_stop){
+        ablastr::warn_manager::WMRecordWarning(
+            "Radiation",
+            "Radiation will be integrated from step " + std::to_string(m_step_start) +
+            " to step " + std::to_string(m_step_stop),
+            ablastr::warn_manager::WarnPriority::low
+        );
+    }
+
+    std::vector<std::string> radiation_output_intervals_string = {"0"};
+    pp_radiation.queryarr("output_intervals", radiation_output_intervals_string);
+    m_output_intervals_parser = utils::parser::IntervalsParser(radiation_output_intervals_string);
 }
 
 
-void RadiationHandler::add_radiation_contribution
-    (const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc, amrex::Real current_time)
-    {
+void RadiationHandler::add_radiation_contribution(
+    const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc,
+    const amrex::Real current_time, const int timestep)
+{
+    if (((m_has_start) && (timestep < m_step_start)) ||
+        ((m_has_stop) && (timestep > m_step_stop))) {
+        return;
+    }
+
         for (int lev = 0; lev <= pc->finestLevel(); ++lev)
         {
 #ifdef AMREX_USE_OMP
@@ -294,11 +318,25 @@ void RadiationHandler::add_radiation_contribution
                     constexpr auto inv_c2 = 1._prt/(PhysConst::c*PhysConst::c);
 
                     WARPX_ALWAYS_ASSERT_WITH_MESSAGE((np-1) == static_cast<int>(np-1), "too many particles!");
+
+#if defined(WARPX_DIM_3D)
                     const auto np_omegas_detpos = amrex::Box{
                         amrex::IntVect{0,0,0},
                         amrex::IntVect{static_cast<int>(np-1), omega_points-1, how_many_det_pos-1}};
+#elif defined(WARPX_DIM_XZ)
+                    const auto np_omegas_detpos = amrex::Box{
+                        amrex::IntVect{0,0},
+                        amrex::IntVect{static_cast<int>(np-1), ((omega_points) * (how_many_det_pos) - 1)}};
+#endif
 
+
+#if defined(WARPX_DIM_3D)
                     amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om, int i_det){
+#elif defined(WARPX_DIM_XZ)
+                    amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det){#endif
+                        const int i_om  = i_om_det / (omega_points);
+                        const int i_det = i_om_det % (omega_points);
+#endif
                         amrex::ParticleReal xp, yp, zp;
                         GetPosition.AsStored(ip,xp, yp, zp);
 
@@ -391,6 +429,14 @@ void RadiationHandler::add_radiation_contribution
             }
         }
     }
+
+void RadiationHandler::dump_radiation (
+    amrex::Real dt, int timestep, const std::string& filename)
+{
+    if (!m_output_intervals_parser.contains(timestep+1)){ return; }
+    Integral_overtime(dt);
+    gather_and_write_radiation(filename, timestep);
+}
 
 void RadiationHandler::gather_and_write_radiation(const std::string& filename, [[maybe_unused]] const int timestep)
 {

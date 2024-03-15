@@ -331,7 +331,7 @@ public:
                       const amrex::MultiFab& Bz);
 #endif
 
-    void doRadiation(amrex::Real dt, amrex::Real cur_time);
+    void doRadiation(amrex::Real dt, amrex::Real cur_time, int timestep);
 
     void RecordOldMomenta();
 
