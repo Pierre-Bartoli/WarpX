@@ -39,7 +39,7 @@ public:
 
     void dump_radiation (amrex::Real dt, int timestep, const std::string& filename);
     void Integral_overtime (const amrex::Real dt);
-    
+
     enum struct Type
     {
         cartesian,
@@ -78,9 +78,11 @@ private:
 
     bool m_has_start;
     bool m_has_stop;
+    bool m_has_step_skip;
 
     int m_step_start;
     int m_step_stop;
+    int m_step_skip;
 
 };
 #endif // WARPX_PARTICLES_RADIATION_H
