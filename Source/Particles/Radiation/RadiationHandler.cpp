@@ -246,8 +246,11 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     amrex::Gpu::Device::streamSynchronize();
 
 
-    m_has_start = queryWithParser(pp_radiation, "step_start", m_step_start);
-    m_has_stop  = queryWithParser(pp_radiation, "step_stop", m_step_stop);
+    m_has_start     = queryWithParser(pp_radiation, "step_start", m_step_start);
+    m_has_stop      = queryWithParser(pp_radiation, "step_stop", m_step_stop);
+    m_has_step_skip = queryWithParser(pp_radiation, "step_skip", m_step_skip);
+    if (!m_has_step_skip) m_step_skip = 1;
+
 
     if (m_has_start || m_has_stop){
         ablastr::warn_manager::WMRecordWarning(
@@ -265,13 +268,16 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
 
 
 void RadiationHandler::add_radiation_contribution(
-    const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc,
+    const amrex::Real t_dt, std::unique_ptr<WarpXParticleContainer>& pc,
     const amrex::Real current_time, const int timestep)
 {
     if (((m_has_start) && (timestep < m_step_start)) ||
-        ((m_has_stop) && (timestep > m_step_stop))) {
+        ((m_has_stop) && (timestep > m_step_stop)) ||
+        ((m_has_step_skip) && (timestep % m_step_skip != 0))) {
         return;
     }
+
+    const amrex::Real dt = t_dt * m_step_skip;
 
         for (int lev = 0; lev <= pc->finestLevel(); ++lev)
         {
@@ -431,10 +437,10 @@ void RadiationHandler::add_radiation_contribution(
     }
 
 void RadiationHandler::dump_radiation (
-    amrex::Real dt, int timestep, const std::string& filename)
+    const amrex::Real t_dt, const int timestep, const std::string& filename)
 {
     if (!m_output_intervals_parser.contains(timestep+1)){ return; }
-    Integral_overtime(dt);
+    Integral_overtime(t_dt);
     gather_and_write_radiation(filename, timestep);
 }
 
@@ -561,8 +567,11 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
 
 }
 
-void RadiationHandler::Integral_overtime(const amrex::Real dt)
+void RadiationHandler::Integral_overtime(const amrex::Real t_dt)
 {
+
+    const amrex::Real dt = t_dt * m_step_skip;
+
     const auto factor = dt*dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
 
     const auto how_many = m_det_pts[0]*m_det_pts[1];
