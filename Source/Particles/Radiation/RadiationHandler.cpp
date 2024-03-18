@@ -334,9 +334,10 @@ void RadiationHandler::add_radiation_contribution(
                     amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om, int i_det){
 #elif defined(WARPX_DIM_XZ)
                     amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det, int){
-                        const int i_om  = i_om_det / (omega_points);
-                        const int i_det = i_om_det % (omega_points);
+                        const int i_det = i_om_det % (how_many_det_pos);
+                        const int i_om  = i_om_det / (how_many_det_pos);
 #endif
+
                         amrex::ParticleReal xp, yp, zp;
                         GetPosition.AsStored(ip,xp, yp, zp);
 
@@ -417,6 +418,8 @@ void RadiationHandler::add_radiation_contribution(
                         const int idx0 = (i_om*how_many_det_pos + i_det)*ncomp;
                         const int idx1 = idx0 + 1;
                         const int idx2 = idx0 + 2;
+
+
 
                         amrex::HostDevice::Atomic::Add(&p_radiation_data[idx0].m_real, cx.m_real);
                         amrex::HostDevice::Atomic::Add(&p_radiation_data[idx0].m_imag, cx.m_imag);
