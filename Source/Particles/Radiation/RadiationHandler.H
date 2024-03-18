@@ -76,6 +76,8 @@ private:
 
     utils::parser::IntervalsParser m_output_intervals_parser;
 
+    bool m_use_logspace_for_omegas;
+
     bool m_has_start;
     bool m_has_stop;
     bool m_has_step_skip;
