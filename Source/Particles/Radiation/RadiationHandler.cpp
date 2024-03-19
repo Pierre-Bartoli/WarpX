@@ -277,7 +277,7 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     if (m_has_step_skip){
         ablastr::warn_manager::WMRecordWarning(
             "Radiation",
-            "Radiation.step_skip is set to " + std::to_string(m_has_step_skip),
+            "Radiation.step_skip is set to " + std::to_string(m_step_skip),
             ablastr::warn_manager::WarnPriority::low
         );
     }
