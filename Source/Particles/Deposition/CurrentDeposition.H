@@ -18,9 +18,7 @@
 
 #include "WarpX.H" // todo: remove include and pass globals as args
 
-#ifdef WARPX_DIM_RZ
-#   include <ablastr/math/Complex.H>
-#endif
+#include <ablastr/math/Complex.H>
 
 #include <AMReX.H>
 #include <AMReX_Arena.H>
@@ -72,6 +70,7 @@ void doDepositionShapeNKernel(const amrex::ParticleReal xp,
                               const int n_rz_azimuthal_modes)
 {
     using namespace amrex::literals;
+    using namespace ablastr::math;
 #if !defined(WARPX_DIM_RZ)
     amrex::ignore_unused(n_rz_azimuthal_modes);
 #endif
@@ -1196,6 +1195,7 @@ void doChargeConservingDepositionShapeNImplicit (const amrex::ParticleReal * con
                                                  const long load_balance_costs_update_algo)
 {
     using namespace amrex;
+    using namespace ablastr::math;
 #if !defined(WARPX_DIM_RZ)
     ignore_unused(n_rz_azimuthal_modes);
 #endif
@@ -1597,6 +1597,7 @@ void doVillasenorDepositionShapeNImplicit (const amrex::ParticleReal * const xp_
                                            const long load_balance_costs_update_algo)
 {
     using namespace amrex;
+    using namespace ablastr::math;
 #if !defined(WARPX_DIM_RZ)
     ignore_unused(n_rz_azimuthal_modes);
 #endif

@@ -96,7 +96,7 @@ namespace
 #if defined(WARPX_DIM_3D)
             auto us = amrex::Vector<amrex::Real>(det_points[0]);
             const auto ulim = distance*std::tan(ang_range[0]*0.5_rt);
-            amrex::linspace(us.begin(), us.end(), -ulim,ulim);
+            amrex::linspace(us.begin(), us.end(), -ulim, ulim);
             auto vs = amrex::Vector<amrex::Real>(det_points[1]);
             const auto vlim = distance*std::tan(ang_range[1]*0.5_rt);
             amrex::linspace(vs.begin(), vs.end(), -vlim, vlim);
@@ -348,23 +348,24 @@ void RadiationHandler::add_radiation_contribution(
                     const auto np_omegas_detpos = amrex::Box{
                         amrex::IntVect{0,0,0},
                         amrex::IntVect{static_cast<int>(np-1), omega_points-1, how_many_det_pos-1}};
-#elif defined(WARPX_DIM_XZ)
+#else
                     const auto np_omegas_detpos = amrex::Box{
                         amrex::IntVect{0,0},
                         amrex::IntVect{static_cast<int>(np-1), ((omega_points) * (how_many_det_pos) - 1)}};
+                        amrex::ignore_unused(p_det_pos_y);
 #endif
 
 
 #if defined(WARPX_DIM_3D)
                     amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om, int i_det){
-#elif defined(WARPX_DIM_XZ)
+#else
                     amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det, int){
                         const int i_det = i_om_det % (how_many_det_pos);
                         const int i_om  = i_om_det / (how_many_det_pos);
 #endif
 
                         amrex::ParticleReal xp, yp, zp;
-                        GetPosition.AsStored(ip,xp, yp, zp);
+                        GetPosition.AsStored(ip, xp, yp, zp);
 
                         const auto ux = 0.5_prt*(p_ux[ip] + p_ux_old[ip]);
                         const auto uy = 0.5_prt*(p_uy[ip] + p_uy_old[ip]);
@@ -392,7 +393,7 @@ void RadiationHandler::add_radiation_contribution(
                         const auto part_det_x = xp - p_det_pos_x[i_det];
 #if defined(WARPX_DIM_3D)
                         const auto part_det_y = yp - p_det_pos_y[i_det];
-#elif defined(WARPX_DIM_XZ)
+#else
                         const auto part_det_y = 0;
 #endif
                         const auto part_det_z = zp - p_det_pos_z[i_det];
@@ -529,10 +530,10 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
     f_omegas.setGridSpacing<amrex::Real>({1});
     f_g1.setGridSpacing<amrex::Real>({1});
     f_g2.setGridSpacing<amrex::Real>({1});
-    f_rad.setGridGlobalOffset(std::vector<amrex::Real>{0,0,0});
-    f_omegas.setGridGlobalOffset(std::vector<amrex::Real>{0});
-    f_g1.setGridGlobalOffset(std::vector<amrex::Real>{0});
-    f_g2.setGridGlobalOffset(std::vector<amrex::Real>{0});
+    f_rad.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt,0.0_rt,0.0_rt});
+    f_omegas.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt});
+    f_g1.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt});
+    f_g2.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt});
 
     // record components
     auto rad_data = f_rad[io::RecordComponent::SCALAR];

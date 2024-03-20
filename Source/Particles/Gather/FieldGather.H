@@ -504,6 +504,7 @@ void doGatherShapeNEsirkepovStencilImplicit (
                      const int n_rz_azimuthal_modes)
 {
     using namespace amrex;
+    using namespace ablastr::math;
 #if !defined(WARPX_DIM_RZ)
     ignore_unused(n_rz_azimuthal_modes);
 #endif
@@ -934,6 +935,7 @@ void doGatherPicnicShapeN (
                      const int n_rz_azimuthal_modes)
 {
     using namespace amrex;
+    using namespace ablastr::math;
 #if !defined(WARPX_DIM_RZ)
     ignore_unused(n_rz_azimuthal_modes);
 #endif
