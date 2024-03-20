@@ -238,18 +238,31 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     constexpr auto ncomp = 3;
     m_radiation_data = amrex::Gpu::DeviceVector<ablastr::math::Complex>(m_det_pts[0]*m_det_pts[1]*m_omega_points*ncomp);
 
+    int t_use_logspace_for_omegas = 0;
+    pp_radiation.query("use_logspace_for_omegas", t_use_logspace_for_omegas);
+    m_use_logspace_for_omegas = static_cast<bool>(t_use_logspace_for_omegas);
+
     auto t_omegas = amrex::Vector<amrex::Real>(m_omega_points);
-    amrex::linspace(t_omegas.begin(), t_omegas.end(), m_omega_range[0], m_omega_range[1]);
+    if (m_use_logspace_for_omegas){
+        amrex::logspace(t_omegas.begin(), t_omegas.end(),
+            std::log10(m_omega_range[0]), std::log10(m_omega_range[1]), 10.0_rt);
+    }
+    else{
+        amrex::linspace(t_omegas.begin(), t_omegas.end(),
+            m_omega_range[0], m_omega_range[1]);
+    }
+
     m_omegas = amrex::Gpu::DeviceVector<amrex::Real>(m_omega_points);
     amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
             t_omegas.begin(), t_omegas.end(), m_omegas.begin());
     amrex::Gpu::Device::streamSynchronize();
 
-
     m_has_start     = queryWithParser(pp_radiation, "step_start", m_step_start);
     m_has_stop      = queryWithParser(pp_radiation, "step_stop", m_step_stop);
     m_has_step_skip = queryWithParser(pp_radiation, "step_skip", m_step_skip);
     if (!m_has_step_skip) m_step_skip = 1;
+
+    m_has_start     = queryWithParser(pp_radiation, "step_start", m_step_start);
 
 
     if (m_has_start || m_has_stop){
@@ -261,6 +274,14 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
         );
     }
 
+    if (m_has_step_skip){
+        ablastr::warn_manager::WMRecordWarning(
+            "Radiation",
+            "Radiation.step_skip is set to " + std::to_string(m_step_skip),
+            ablastr::warn_manager::WarnPriority::low
+        );
+    }
+
     std::vector<std::string> radiation_output_intervals_string = {"0"};
     pp_radiation.queryarr("output_intervals", radiation_output_intervals_string);
     m_output_intervals_parser = utils::parser::IntervalsParser(radiation_output_intervals_string);
@@ -268,7 +289,7 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
 
 
 void RadiationHandler::add_radiation_contribution(
-    const amrex::Real t_dt, std::unique_ptr<WarpXParticleContainer>& pc,
+    const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc,
     const amrex::Real current_time, const int timestep)
 {
     if (((m_has_start) && (timestep < m_step_start)) ||
@@ -276,8 +297,6 @@ void RadiationHandler::add_radiation_contribution(
         ((m_has_step_skip) && (timestep % m_step_skip != 0))) {
         return;
     }
-
-    const amrex::Real dt = t_dt * m_step_skip;
 
         for (int lev = 0; lev <= pc->finestLevel(); ++lev)
         {
@@ -440,10 +459,10 @@ void RadiationHandler::add_radiation_contribution(
     }
 
 void RadiationHandler::dump_radiation (
-    const amrex::Real t_dt, const int timestep, const std::string& filename)
+    const amrex::Real dt, const int timestep, const std::string& filename)
 {
     if (!m_output_intervals_parser.contains(timestep+1)){ return; }
-    Integral_overtime(t_dt);
+    Integral_overtime(dt);
     gather_and_write_radiation(filename, timestep);
 }
 
@@ -570,12 +589,12 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
 
 }
 
-void RadiationHandler::Integral_overtime(const amrex::Real t_dt)
+void RadiationHandler::Integral_overtime(const amrex::Real dt)
 {
 
-    const amrex::Real dt = t_dt * m_step_skip;
+    const amrex::Real long_dt = dt * m_step_skip;
 
-    const auto factor = dt*dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
+    const auto factor = long_dt*long_dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
 
     const auto how_many = m_det_pts[0]*m_det_pts[1];
 
