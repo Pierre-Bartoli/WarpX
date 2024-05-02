@@ -250,14 +250,15 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, co
     auto p_m_det_n_y = m_det_n_y.dataPtr();
     auto p_m_det_n_z = m_det_n_z.dataPtr();
 
-    amrex::ParallelFor(det_x.size(), [=] AMREX_GPU_DEVICE(int i){
+    const auto NN = det_x.size();
+    amrex::ParallelFor(NN, [=] AMREX_GPU_DEVICE (int ip){
             const auto dist = std::sqrt(
-                amrex::Math::powi<2>(center[0] - p_m_det_x[i]) +
-                amrex::Math::powi<2>(center[1] - p_m_det_y[i]) +
-                amrex::Math::powi<2>(center[2] - p_m_det_z[i]));
-            p_m_det_n_x[i] = p_m_det_x[i]/dist;
-            p_m_det_n_y[i] = p_m_det_y[i]/dist;
-            p_m_det_n_z[i] = p_m_det_z[i]/dist;
+                amrex::Math::powi<2>(center[0] - p_m_det_x[ip]) +
+                amrex::Math::powi<2>(center[1] - p_m_det_y[ip]) +
+                amrex::Math::powi<2>(center[2] - p_m_det_z[ip]));
+            p_m_det_n_x[ip] = p_m_det_x[ip]/dist;
+            p_m_det_n_y[ip] = p_m_det_y[ip]/dist;
+            p_m_det_n_z[ip] = p_m_det_z[ip]/dist;
         });
 
     constexpr auto ncomp = 3;
