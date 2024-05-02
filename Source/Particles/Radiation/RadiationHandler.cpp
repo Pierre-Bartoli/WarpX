@@ -16,6 +16,7 @@
 #include "ablastr/warn_manager/WarnManager.H"
 
 #include <AMReX_Algorithm.H>
+#include <AMReX_Math.H>
 
 #ifdef AMREX_USE_OMP
 #   include <omp.h>
@@ -26,6 +27,7 @@
 #   include <openPMD/openPMD.hpp>
 #endif
 
+#include <cmath>
 #include <tuple>
 #include <vector>
 
@@ -168,7 +170,7 @@ namespace
 
 
 
-RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
+RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, const amrex::Geometry& geom, const int shape_factor)
 {
 #if defined(WARPX_DIM_RZ) || defined(WARPX_DIM_1D)
     WARPX_ABORT_WITH_MESSAGE("Radiation is not supported yet in RZ and 1D.");
@@ -285,6 +287,15 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center)
     std::vector<std::string> radiation_output_intervals_string = {"0"};
     pp_radiation.queryarr("output_intervals", radiation_output_intervals_string);
     m_output_intervals_parser = utils::parser::IntervalsParser(radiation_output_intervals_string);
+
+    // Cell sizes
+    m_d[0] = geom.CellSize(0);
+    m_d[1] = geom.CellSize(1);
+    m_d[2] = geom.CellSize(2);
+
+    // Shape factor
+    m_shape_factor = shape_factor;
+
 }
 
 
@@ -298,13 +309,24 @@ void RadiationHandler::add_radiation_contribution(
         return;
     }
 
+        constexpr auto c = PhysConst::c;
+        constexpr auto inv_c = 1._prt/(PhysConst::c);
+        constexpr auto inv_c2 = 1._prt/(PhysConst::c*PhysConst::c);
+
+        const auto dx = m_d[0];
+        const auto dy = m_d[1];
+        const auto dz = m_d[2];
+
+        const auto dx_over_2c = dx*inv_c*.5_rt;
+        const auto dy_over_2c = dy*inv_c*.5_rt;
+        const auto dz_over_2c = dz*inv_c*.5_rt;
+
         for (int lev = 0; lev <= pc->finestLevel(); ++lev)
         {
 #ifdef AMREX_USE_OMP
             #pragma omp parallel
 #endif
             {
-
                 for (WarpXParIter pti(*pc, lev); pti.isValid(); ++pti)
                 {
 
@@ -338,10 +360,6 @@ void RadiationHandler::add_radiation_contribution(
 
                     const auto& omega_points = m_omega_points;
 
-                    constexpr auto c = PhysConst::c;
-                    constexpr auto inv_c = 1._prt/(PhysConst::c);
-                    constexpr auto inv_c2 = 1._prt/(PhysConst::c*PhysConst::c);
-
                     WARPX_ALWAYS_ASSERT_WITH_MESSAGE((np-1) == static_cast<int>(np-1), "too many particles!");
 
 #if defined(WARPX_DIM_3D)
@@ -357,9 +375,15 @@ void RadiationHandler::add_radiation_contribution(
 
 
 #if defined(WARPX_DIM_3D)
-                    amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om, int i_det){
+                    amrex::ParallelFor(
+                        TypeList<CompileTimeOptions<1,2,3>>{},
+                        {m_shape_factor},
+                        np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om, int i_det, auto shape_factor_runtime){
 #else
-                    amrex::ParallelFor(np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det, int){
+                    amrex::ParallelFor(
+                        TypeList<CompileTimeOptions<1,2,3>>{},
+                        {m_shape_factor},
+                        np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det, int, auto shape_factor_runtime){
                         const int i_det = i_om_det % (how_many_det_pos);
                         const int i_om  = i_om_det / (how_many_det_pos);
 #endif
@@ -386,9 +410,10 @@ void RadiationHandler::add_radiation_contribution(
                         const auto bpy = (p_uy[ip] - p_uy_old[ip])*one_over_dt_gamma_c;
                         const auto bpz = (p_uz[ip] - p_uz_old[ip])*one_over_dt_gamma_c;
 
-                        const auto tot_q = q*p_w[ip];
-
                         const auto i_omega_over_c = Complex{0.0_prt, 1.0_prt}*p_omegas[i_om]*inv_c;
+                        const auto fcx = p_omegas[i_om]*dx_over_2c;
+                        const auto fcy = p_omegas[i_om]*dy_over_2c;
+                        const auto fcz = p_omegas[i_om]*dz_over_2c;
 
                         const auto part_det_x = xp - p_det_pos_x[i_det];
 #if defined(WARPX_DIM_3D)
@@ -427,7 +452,12 @@ void RadiationHandler::add_radiation_contribution(
 
                         const auto phase_term = amrex::exp(i_omega_over_c*(c*current_time - d_part_det));
 
-                        const auto coeff = tot_q*phase_term/(one_minus_b_dot_n*one_minus_b_dot_n);
+                        constexpr auto sinc = [](amrex::Real x){return std::sin(x)/x;};
+                        const auto FF = amrex::Math::powi<shape_factor_runtime*2>(
+                            sinc(fcx*nx)*sinc(fcy*ny)*sinc(fcz*nz));
+                        const auto form_factor = std::sqrt(p_w[ip] + (p_w[ip]*p_w[ip]-p_w[ip])*FF);
+
+                        const auto coeff = q*phase_term/(one_minus_b_dot_n*one_minus_b_dot_n)*form_factor;
 
                         //Nyquist limiter
                         const amrex::Real nyquist_flag = (p_omegas[i_om] < ablastr::constant::math::pi/one_minus_b_dot_n/dt);
