@@ -411,43 +411,35 @@ void RadiationHandler::add_radiation_contribution(
                         //Calculation of 1_beta.n, n corresponds to m_det_direction, the direction of the normal
                         const auto one_minus_b_dot_n = 1.0_prt - (bx*nx + by*ny + bz*nz);
 
-                        auto cx = Complex{0.0_prt, 0.0_prt};
-                        auto cy = Complex{0.0_prt, 0.0_prt};
-                        auto cz = Complex{0.0_prt, 0.0_prt};
+                        const auto n_minus_beta_x = nx - bx;
+                        const auto n_minus_beta_y = ny - by;
+                        const auto n_minus_beta_z = nz - bz;
+
+                        //Calculation of nxbeta
+                        const auto n_minus_beta_cross_bp_x = n_minus_beta_y*bpz - n_minus_beta_z*bpy;
+                        const auto n_minus_beta_cross_bp_y = n_minus_beta_z*bpx - n_minus_beta_x*bpz;
+                        const auto n_minus_beta_cross_bp_z = n_minus_beta_x*bpy - n_minus_beta_y*bpx;
+
+                        //Calculation of nxnxbeta
+                        const auto n_cross_n_minus_beta_cross_bp_x = ny*n_minus_beta_cross_bp_z - nz*n_minus_beta_cross_bp_y;
+                        const auto n_cross_n_minus_beta_cross_bp_y = nz*n_minus_beta_cross_bp_x - nx*n_minus_beta_cross_bp_z;
+                        const auto n_cross_n_minus_beta_cross_bp_z = nx*n_minus_beta_cross_bp_y - ny*n_minus_beta_cross_bp_x;
+
+                        const auto phase_term = amrex::exp(i_omega_over_c*(c*current_time - d_part_det));
+
+                        const auto coeff = tot_q*phase_term/(one_minus_b_dot_n*one_minus_b_dot_n);
 
                         //Nyquist limiter
-                        if(p_omegas[i_om] < ablastr::constant::math::pi/one_minus_b_dot_n/dt){
-                            
-                            const auto n_minus_beta_x = nx - bx;
-                            const auto n_minus_beta_y = ny - by;
-                            const auto n_minus_beta_z = nz - bz;
+                        const amrex::Real nyquist_flag = (p_omegas[i_om] < ablastr::constant::math::pi/one_minus_b_dot_n/dt);
 
-                            //Calculation of nxbeta
-                            const auto n_minus_beta_cross_bp_x = n_minus_beta_y*bpz - n_minus_beta_z*bpy;
-                            const auto n_minus_beta_cross_bp_y = n_minus_beta_z*bpx - n_minus_beta_x*bpz;
-                            const auto n_minus_beta_cross_bp_z = n_minus_beta_x*bpy - n_minus_beta_y*bpx;
-
-                            //Calculation of nxnxbeta
-                            const auto n_cross_n_minus_beta_cross_bp_x = ny*n_minus_beta_cross_bp_z - nz*n_minus_beta_cross_bp_y;
-                            const auto n_cross_n_minus_beta_cross_bp_y = nz*n_minus_beta_cross_bp_x - nx*n_minus_beta_cross_bp_z;
-                            const auto n_cross_n_minus_beta_cross_bp_z = nx*n_minus_beta_cross_bp_y - ny*n_minus_beta_cross_bp_x;
-
-                            const auto phase_term = amrex::exp(i_omega_over_c*(c*current_time - d_part_det));
-
-                            const auto coeff = tot_q*phase_term/(one_minus_b_dot_n*one_minus_b_dot_n);
-
-                            cx = coeff*n_cross_n_minus_beta_cross_bp_x;
-                            cy = coeff*n_cross_n_minus_beta_cross_bp_y;
-                            cz = coeff*n_cross_n_minus_beta_cross_bp_z;
-
-                        }
+                        const auto cx = coeff*n_cross_n_minus_beta_cross_bp_x*nyquist_flag;
+                        const auto cy = coeff*n_cross_n_minus_beta_cross_bp_y*nyquist_flag;
+                        const auto cz = coeff*n_cross_n_minus_beta_cross_bp_z*nyquist_flag;
 
                         const int ncomp = 3;
                         const int idx0 = (i_om*how_many_det_pos + i_det)*ncomp;
                         const int idx1 = idx0 + 1;
                         const int idx2 = idx0 + 2;
-
-
 
                         amrex::HostDevice::Atomic::Add(&p_radiation_data[idx0].m_real, cx.m_real);
                         amrex::HostDevice::Atomic::Add(&p_radiation_data[idx0].m_imag, cx.m_imag);
