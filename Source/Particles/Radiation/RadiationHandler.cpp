@@ -237,6 +237,29 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, co
     amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
         det_z.begin(), det_z.end(), m_det_z.begin());
 
+    // Pre-compute detector directions
+    m_det_n_x = amrex::Gpu::DeviceVector<amrex::Real>(det_x.size());
+    m_det_n_y = amrex::Gpu::DeviceVector<amrex::Real>(det_y.size());
+    m_det_n_z = amrex::Gpu::DeviceVector<amrex::Real>(det_z.size());
+
+    const auto p_m_det_x = m_det_x.dataPtr();
+    const auto p_m_det_y = m_det_y.dataPtr();
+    const auto p_m_det_z = m_det_z.dataPtr();
+
+    auto p_m_det_n_x = m_det_n_x.dataPtr();
+    auto p_m_det_n_y = m_det_n_y.dataPtr();
+    auto p_m_det_n_z = m_det_n_z.dataPtr();
+
+    amrex::ParallelFor(det_x.size(), [=] AMREX_GPU_DEVICE(int i){
+            const auto dist = std::sqrt(
+                amrex::Math::powi<2>(center[0] - p_m_det_x[i]) +
+                amrex::Math::powi<2>(center[1] - p_m_det_y[i]) +
+                amrex::Math::powi<2>(center[2] - p_m_det_z[i]));
+            p_m_det_n_x[i] = p_m_det_x[i]/dist;
+            p_m_det_n_y[i] = p_m_det_y[i]/dist;
+            p_m_det_n_z[i] = p_m_det_z[i]/dist;
+        });
+
     constexpr auto ncomp = 3;
     m_radiation_data = amrex::Gpu::DeviceVector<ablastr::math::Complex>(m_det_pts[0]*m_det_pts[1]*m_omega_points*ncomp);
 
@@ -352,9 +375,9 @@ void RadiationHandler::add_radiation_contribution(
 
                     const auto p_omegas = m_omegas.dataPtr();
 
-                    const auto p_det_pos_x = m_det_x.dataPtr();
-                    const auto p_det_pos_y = m_det_y.dataPtr();
-                    const auto p_det_pos_z = m_det_z.dataPtr();
+                    const auto* p_det_n_x = m_det_n_x.dataPtr();
+                    const auto* p_det_n_y = m_det_n_y.dataPtr();
+                    const auto* p_det_n_z = m_det_n_z.dataPtr();
 
                     auto p_radiation_data = m_radiation_data.dataPtr();
 
@@ -415,23 +438,9 @@ void RadiationHandler::add_radiation_contribution(
                         const auto fcy = p_omegas[i_om]*dy_over_2c;
                         const auto fcz = p_omegas[i_om]*dz_over_2c;
 
-                        const auto part_det_x = xp - p_det_pos_x[i_det];
-#if defined(WARPX_DIM_3D)
-                        const auto part_det_y = yp - p_det_pos_y[i_det];
-#else
-                        const auto part_det_y = 0;
-#endif
-                        const auto part_det_z = zp - p_det_pos_z[i_det];
-
-
-                        const auto d_part_det = std::sqrt(
-                            part_det_x*part_det_x + part_det_y*part_det_y + part_det_z*part_det_z);
-
-                        const auto one_over_d_part_det = 1.0_prt/d_part_det;
-
-                        const auto nx = part_det_x*one_over_d_part_det;
-                        const auto ny = part_det_y*one_over_d_part_det;
-                        const auto nz = part_det_z*one_over_d_part_det;
+                        const auto nx = p_det_n_x[i_det];
+                        const auto ny = p_det_n_y[i_det];
+                        const auto nz = p_det_n_z[i_det];
 
                         //Calculation of 1_beta.n, n corresponds to m_det_direction, the direction of the normal
                         const auto one_minus_b_dot_n = 1.0_prt - (bx*nx + by*ny + bz*nz);
@@ -450,7 +459,8 @@ void RadiationHandler::add_radiation_contribution(
                         const auto n_cross_n_minus_beta_cross_bp_y = nz*n_minus_beta_cross_bp_x - nx*n_minus_beta_cross_bp_z;
                         const auto n_cross_n_minus_beta_cross_bp_z = nx*n_minus_beta_cross_bp_y - ny*n_minus_beta_cross_bp_x;
 
-                        const auto phase_term = amrex::exp(i_omega_over_c*(c*current_time - d_part_det));
+                        const auto n_dot_r = nx*xp + ny*yp + nz*zp;
+                        const auto phase_term = amrex::exp(i_omega_over_c*(c*current_time - (n_dot_r)));
 
                         constexpr auto sinc = [](amrex::Real x){return std::sin(x)/x;};
                         const auto FF = amrex::Math::powi<shape_factor_runtime*2>(
