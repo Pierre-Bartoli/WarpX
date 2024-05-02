@@ -60,6 +60,7 @@ private:
 
     amrex::Real m_det_distance;
     amrex::Array<int,2> m_det_pts;
+    amrex::Array<amrex::Real,3> m_center;
     amrex::Array<amrex::Real,3> m_det_direction;
     amrex::Array<amrex::Real,3> m_det_orientation;
 

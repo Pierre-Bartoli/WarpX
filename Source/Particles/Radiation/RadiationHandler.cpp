@@ -242,25 +242,6 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, co
     m_det_n_y = amrex::Gpu::DeviceVector<amrex::Real>(det_y.size());
     m_det_n_z = amrex::Gpu::DeviceVector<amrex::Real>(det_z.size());
 
-    const auto p_m_det_x = m_det_x.dataPtr();
-    const auto p_m_det_y = m_det_y.dataPtr();
-    const auto p_m_det_z = m_det_z.dataPtr();
-
-    auto p_m_det_n_x = m_det_n_x.dataPtr();
-    auto p_m_det_n_y = m_det_n_y.dataPtr();
-    auto p_m_det_n_z = m_det_n_z.dataPtr();
-
-    const auto NN = det_x.size();
-    amrex::ParallelFor(NN, [=] AMREX_GPU_DEVICE (int ip){
-            const auto dist = std::sqrt(
-                amrex::Math::powi<2>(center[0] - p_m_det_x[ip]) +
-                amrex::Math::powi<2>(center[1] - p_m_det_y[ip]) +
-                amrex::Math::powi<2>(center[2] - p_m_det_z[ip]));
-            p_m_det_n_x[ip] = p_m_det_x[ip]/dist;
-            p_m_det_n_y[ip] = p_m_det_y[ip]/dist;
-            p_m_det_n_z[ip] = p_m_det_z[ip]/dist;
-        });
-
     constexpr auto ncomp = 3;
     m_radiation_data = amrex::Gpu::DeviceVector<ablastr::math::Complex>(m_det_pts[0]*m_det_pts[1]*m_omega_points*ncomp);
 
@@ -320,6 +301,8 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, co
     // Shape factor
     m_shape_factor = shape_factor;
 
+    m_center = center;
+
 }
 
 
@@ -332,6 +315,29 @@ void RadiationHandler::add_radiation_contribution(
         ((m_has_step_skip) && (timestep % m_step_skip != 0))) {
         return;
     }
+
+
+    const auto p_m_det_x = m_det_x.dataPtr();
+    const auto p_m_det_y = m_det_y.dataPtr();
+    const auto p_m_det_z = m_det_z.dataPtr();
+
+    auto p_m_det_n_x = m_det_n_x.dataPtr();
+    auto p_m_det_n_y = m_det_n_y.dataPtr();
+    auto p_m_det_n_z = m_det_n_z.dataPtr();
+
+    const auto center = m_center;
+
+    const auto NN = m_det_x.size();
+    amrex::ParallelFor(NN, [=] AMREX_GPU_DEVICE (int ip){
+            const auto dist = std::sqrt(
+                amrex::Math::powi<2>(center[0] - p_m_det_x[ip]) +
+                amrex::Math::powi<2>(center[1] - p_m_det_y[ip]) +
+                amrex::Math::powi<2>(center[2] - p_m_det_z[ip]));
+            p_m_det_n_x[ip] = p_m_det_x[ip]/dist;
+            p_m_det_n_y[ip] = p_m_det_y[ip]/dist;
+            p_m_det_n_z[ip] = p_m_det_z[ip]/dist;
+        });
+
 
         constexpr auto c = PhysConst::c;
         constexpr auto inv_c = 1._prt/(PhysConst::c);
