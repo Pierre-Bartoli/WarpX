@@ -636,6 +636,7 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
     f_omegas.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt});
     f_g1.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt});
     f_g2.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt});
+
     f_det_x.setAxisLabels({"i_det", "j_det"});
     f_det_x.setGridSpacing<amrex::Real>({1,1});
     f_det_x.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt,0.0_rt});
@@ -694,13 +695,13 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
         {0}, {(long unsigned int) m_grid[1].size()});
     det_xs.storeChunkRaw(
         det_pos_x_cpu.data(),
-        {0}, {(long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
+        {0,0}, {(long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
     det_ys.storeChunkRaw(
         det_pos_y_cpu.data(),
-        {0}, {(long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
+        {0,0}, {(long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
     det_zs.storeChunkRaw(
         det_pos_z_cpu.data(),
-        {0}, {(long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
+        {0,0}, {(long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
     series.flush();
 #else
 
