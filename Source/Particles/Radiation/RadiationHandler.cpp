@@ -303,6 +303,72 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, co
 
     m_center = center;
 
+    m_FF = amrex::Gpu::DeviceVector<amrex::Real>(m_omega_points * det_x.size());
+
+    prepare_data_on_gpu ();
+
+}
+
+void RadiationHandler::prepare_data_on_gpu ()
+{
+    const auto center = m_center;
+
+    const auto* p_det_x = m_det_x.dataPtr();
+    const auto* p_det_y = m_det_y.dataPtr();
+    const auto* p_det_z = m_det_z.dataPtr();
+
+    auto* p_det_n_x = m_det_n_x.dataPtr();
+    auto* p_det_n_y = m_det_n_y.dataPtr();
+    auto* p_det_n_z = m_det_n_z.dataPtr();
+
+    const auto NN = m_det_x.size();
+    amrex::ParallelFor(NN, [=] AMREX_GPU_DEVICE (int ip){
+        const auto one_over_dist = 1.0_rt/std::sqrt(
+            amrex::Math::powi<2>(center[0] - p_det_x[ip]) +
+            amrex::Math::powi<2>(center[1] - p_det_y[ip]) +
+            amrex::Math::powi<2>(center[2] - p_det_z[ip]));
+        p_det_n_x[ip] = (p_det_x[ip]-center[0])*one_over_dist;
+        p_det_n_y[ip] = (p_det_y[ip]-center[1])*one_over_dist;
+        p_det_n_z[ip] = (p_det_z[ip]-center[2])*one_over_dist;
+    });
+
+    const auto dx = m_d[0];
+    const auto dy = m_d[1];
+    const auto dz = m_d[2];
+
+    constexpr auto inv_c = 1._prt/(PhysConst::c);
+
+    const auto dx_over_2c = dx*inv_c*.5_rt;
+    const auto dy_over_2c = dy*inv_c*.5_rt;
+    const auto dz_over_2c = dz*inv_c*.5_rt;
+
+    const auto p_omegas = m_omegas.dataPtr();
+
+    auto* p_m_FF = m_FF.dataPtr();
+
+    const auto how_many_det_pos = static_cast<int>(m_det_x.size());
+    const auto om_times_det_size =  static_cast<int>(m_omegas.size() * how_many_det_pos);
+    amrex::ParallelFor(
+        TypeList<CompileTimeOptions<1,2,3>>{},
+        {m_shape_factor},
+        om_times_det_size, [=] AMREX_GPU_DEVICE (int i_om_det, auto shape_factor_runtime){
+            const int i_det = i_om_det % (how_many_det_pos);
+            const int i_om  = i_om_det / (how_many_det_pos);
+
+            const auto fcx = p_omegas[i_om]*dx_over_2c;
+            const auto fcy = p_omegas[i_om]*dy_over_2c;
+            const auto fcz = p_omegas[i_om]*dz_over_2c;
+
+            const auto nx = p_det_n_x[i_det];
+            const auto ny = p_det_n_y[i_det];
+            const auto nz = p_det_n_z[i_det];
+
+            constexpr auto sinc = [](amrex::Real x){return std::sin(x)/x;};
+            const auto FF = amrex::Math::powi<shape_factor_runtime*2>(
+                sinc(fcx*nx)*sinc(fcy*ny)*sinc(fcz*nz));
+
+            p_m_FF[i_om_det] = FF;
+        });
 }
 
 
@@ -316,40 +382,9 @@ void RadiationHandler::add_radiation_contribution(
         return;
     }
 
-
-    const auto p_m_det_x = m_det_x.dataPtr();
-    const auto p_m_det_y = m_det_y.dataPtr();
-    const auto p_m_det_z = m_det_z.dataPtr();
-
-    auto p_m_det_n_x = m_det_n_x.dataPtr();
-    auto p_m_det_n_y = m_det_n_y.dataPtr();
-    auto p_m_det_n_z = m_det_n_z.dataPtr();
-
-    const auto center = m_center;
-
-    const auto NN = m_det_x.size();
-    amrex::ParallelFor(NN, [=] AMREX_GPU_DEVICE (int ip){
-            const auto dist = std::sqrt(
-                amrex::Math::powi<2>(center[0] - p_m_det_x[ip]) +
-                amrex::Math::powi<2>(center[1] - p_m_det_y[ip]) +
-                amrex::Math::powi<2>(center[2] - p_m_det_z[ip]));
-            p_m_det_n_x[ip] = p_m_det_x[ip]/dist;
-            p_m_det_n_y[ip] = p_m_det_y[ip]/dist;
-            p_m_det_n_z[ip] = p_m_det_z[ip]/dist;
-        });
-
-
         constexpr auto c = PhysConst::c;
         constexpr auto inv_c = 1._prt/(PhysConst::c);
         constexpr auto inv_c2 = 1._prt/(PhysConst::c*PhysConst::c);
-
-        const auto dx = m_d[0];
-        const auto dy = m_d[1];
-        const auto dz = m_d[2];
-
-        const auto dx_over_2c = dx*inv_c*.5_rt;
-        const auto dy_over_2c = dy*inv_c*.5_rt;
-        const auto dz_over_2c = dz*inv_c*.5_rt;
 
         for (int lev = 0; lev <= pc->finestLevel(); ++lev)
         {
@@ -386,9 +421,11 @@ void RadiationHandler::add_radiation_contribution(
                     const auto* p_det_n_y = m_det_n_y.dataPtr();
                     const auto* p_det_n_z = m_det_n_z.dataPtr();
 
-                    auto p_radiation_data = m_radiation_data.dataPtr();
+                    const auto* p_m_FF = m_FF.dataPtr();
 
-                    const auto& omega_points = m_omega_points;
+                    auto* p_radiation_data = m_radiation_data.dataPtr();
+
+                    const auto omega_points = m_omega_points;
 
                     WARPX_ALWAYS_ASSERT_WITH_MESSAGE((np-1) == static_cast<int>(np-1), "too many particles!");
 
@@ -406,30 +443,19 @@ void RadiationHandler::add_radiation_contribution(
 
 #if defined(WARPX_DIM_3D)
                     amrex::ParallelFor(
-                        TypeList<CompileTimeOptions<1,2,3>>{},
-                        {m_shape_factor},
-                        np_omegas_detpos, [=] AMREX_GPU_DEVICE(int, int i_om, int i_det, auto shape_factor_runtime){
+                        np_omegas_detpos, [=] AMREX_GPU_DEVICE(int, int i_om, int i_det){
 #else
                     amrex::ParallelFor(
-                        TypeList<CompileTimeOptions<1,2,3>>{},
-                        {m_shape_factor},
-                        np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det, int, auto shape_factor_runtime){
+                        np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det, int){
                         const int i_det = i_om_det % (how_many_det_pos);
                         const int i_om  = i_om_det / (how_many_det_pos);
 #endif
 
                         const auto i_omega_over_c = Complex{0.0_prt, 1.0_prt}*p_omegas[i_om]*inv_c;
-                        const auto fcx = p_omegas[i_om]*dx_over_2c;
-                        const auto fcy = p_omegas[i_om]*dy_over_2c;
-                        const auto fcz = p_omegas[i_om]*dz_over_2c;
 
                         const auto nx = p_det_n_x[i_det];
                         const auto ny = p_det_n_y[i_det];
                         const auto nz = p_det_n_z[i_det];
-
-                        constexpr auto sinc = [](amrex::Real x){return std::sin(x)/x;};
-                        const auto FF = amrex::Math::powi<shape_factor_runtime*2>(
-                            sinc(fcx*nx)*sinc(fcy*ny)*sinc(fcz*nz));
 
                         auto sum_cx = Complex{0.0_prt, 0.0_prt};
                         auto sum_cy = Complex{0.0_prt, 0.0_prt};
@@ -478,6 +504,7 @@ void RadiationHandler::add_radiation_contribution(
                             const auto n_dot_r = nx*xp + ny*yp + nz*zp;
                             const auto phase_term = amrex::exp(i_omega_over_c*(c*current_time - (n_dot_r)));
 
+                            const auto FF = p_m_FF[i_om*how_many_det_pos + i_det];
                             const auto form_factor = std::sqrt(p_w[ip] + (p_w[ip]*p_w[ip]-p_w[ip])*FF);
 
                             const auto coeff = q*phase_term/(one_minus_b_dot_n*one_minus_b_dot_n)*form_factor;

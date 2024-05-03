@@ -46,6 +46,9 @@ public:
         spherical
     };
 
+protected:
+    void prepare_data_on_gpu ();
+
 private:
 
     void gather_and_write_radiation (const std::string& filename, const int timestep);
@@ -54,6 +57,9 @@ private:
     amrex::Array<amrex::Real,2> m_omega_range;
     int m_omega_points;
     amrex::Gpu::DeviceVector<amrex::Real> m_omegas;
+
+    // Auxiliary coefficients for form factors
+    amrex::Gpu::DeviceVector<amrex::Real> m_FF;
 
     // Dimensions of the detector
     amrex::Array<amrex::Real,2> m_ang_range;
