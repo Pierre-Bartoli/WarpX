@@ -46,7 +46,6 @@ public:
         spherical
     };
 
-protected:
     void prepare_data_on_gpu ();
 
 private:
