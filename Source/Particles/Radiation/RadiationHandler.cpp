@@ -619,6 +619,9 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
     auto f_omegas = i.meshes["omegas"];
     auto f_g1 = i.meshes["g1"];
     auto f_g2 = i.meshes["g2"];
+    auto f_det_x = i.meshes["det_x"];
+    auto f_det_y = i.meshes["det_y"];
+    auto f_det_z = i.meshes["det_z"];
 
     // meta data
     f_rad.setAxisLabels({"i_om", "i_det", "j_det"});
@@ -633,12 +636,24 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
     f_omegas.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt});
     f_g1.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt});
     f_g2.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt});
+    f_det_x.setAxisLabels({"i_det", "j_det"});
+    f_det_x.setGridSpacing<amrex::Real>({1,1});
+    f_det_x.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt,0.0_rt});
+    f_det_y.setAxisLabels({"i_det", "j_det"});
+    f_det_y.setGridSpacing<amrex::Real>({1,1});
+    f_det_y.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt,0.0_rt});
+    f_det_z.setAxisLabels({"i_det", "j_det"});
+    f_det_z.setGridSpacing<amrex::Real>({1,1});
+    f_det_z.setGridGlobalOffset(std::vector<amrex::Real>{0.0_rt,0.0_rt});
 
     // record components
     auto rad_data = f_rad[io::RecordComponent::SCALAR];
     auto omegas = f_omegas[io::RecordComponent::SCALAR];
     auto g1s = f_g1[io::RecordComponent::SCALAR];
     auto g2s = f_g2[io::RecordComponent::SCALAR];
+    auto det_xs = f_det_x[io::RecordComponent::SCALAR];
+    auto det_ys = f_det_y[io::RecordComponent::SCALAR];
+    auto det_zs = f_det_z[io::RecordComponent::SCALAR];
 
     // prepare datasets
     const auto dtype = io::determineDatatype<amrex::Real>();
@@ -646,6 +661,9 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
     omegas.setPosition<amrex::Real>({0.0});
     g1s.setPosition<amrex::Real>({0.0});
     g2s.setPosition<amrex::Real>({0.0});
+    det_xs.setPosition<amrex::Real>({0.0,0.0});
+    det_ys.setPosition<amrex::Real>({0.0,0.0});
+    det_zs.setPosition<amrex::Real>({0.0,0.0});
     rad_data.resetDataset(io::Dataset(dtype,
         {(long unsigned int) m_omega_points, (long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]}));
     omegas.resetDataset(io::Dataset(dtype,
@@ -654,6 +672,12 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
         {(long unsigned int) m_det_pts[0]}));
     g2s.resetDataset(io::Dataset(dtype,
         {(long unsigned int) m_det_pts[1]}));
+    det_xs.resetDataset(io::Dataset(dtype,
+        { (long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]}));
+    det_ys.resetDataset(io::Dataset(dtype,
+        { (long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]}));
+    det_zs.resetDataset(io::Dataset(dtype,
+        { (long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]}));
 
     // write data
     rad_data.storeChunkRaw(
@@ -668,6 +692,15 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
     g2s.storeChunkRaw(
         m_grid[1].data(),
         {0}, {(long unsigned int) m_grid[1].size()});
+    det_xs.storeChunkRaw(
+        det_pos_x_cpu.data(),
+        {0}, {(long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
+    det_ys.storeChunkRaw(
+        det_pos_y_cpu.data(),
+        {0}, {(long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
+    det_zs.storeChunkRaw(
+        det_pos_z_cpu.data(),
+        {0}, {(long unsigned int) m_det_pts[0], (long unsigned int) m_det_pts[1]});
     series.flush();
 #else
 
