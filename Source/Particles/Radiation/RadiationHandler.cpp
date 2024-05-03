@@ -12,6 +12,7 @@
 #include "Utils/Parser/ParserUtils.H"
 #include "Utils/WarpXConst.H"
 #include "Utils/TextMsg.H"
+#include "Utils/WarpXProfilerWrapper.H"
 
 #include "ablastr/warn_manager/WarnManager.H"
 
@@ -46,6 +47,7 @@ auto const radiation_type_map  = std::map<std::string, RadiationHandler::Type>{
 
 namespace
 {
+
     auto compute_detector_positions(
         const amrex::Array<amrex::Real,3>& center,
         const amrex::Array<amrex::Real,3>& direction,
@@ -55,6 +57,9 @@ namespace
         const amrex::Array<amrex::Real,2>& ang_range,
         const RadiationHandler::Type radiation_type)
     {
+
+        WARPX_PROFILE("compute_detector_positions");
+
         WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
             direction[0]*orientation[0] +
             direction[1]*orientation[1] +
@@ -172,6 +177,8 @@ namespace
 
 RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, const amrex::Geometry& geom, const int shape_factor)
 {
+    WARPX_PROFILE("RadiationHandler::RadiationHandler");
+
 #if defined(WARPX_DIM_RZ) || defined(WARPX_DIM_1D)
     WARPX_ABORT_WITH_MESSAGE("Radiation is not supported yet in RZ and 1D.");
 #endif
@@ -311,6 +318,8 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, co
 
 void RadiationHandler::prepare_data_on_gpu ()
 {
+    WARPX_PROFILE("RadiationHandler::prepare_data_on_gpu");
+
     const auto center = m_center;
 
     const auto* p_det_x = m_det_x.dataPtr();
@@ -376,6 +385,8 @@ void RadiationHandler::add_radiation_contribution(
     const amrex::Real dt, std::unique_ptr<WarpXParticleContainer>& pc,
     const amrex::Real current_time, const int timestep)
 {
+    WARPX_PROFILE("RadiationHandler::add_radiation_contribution");
+
     if (((m_has_start) && (timestep < m_step_start)) ||
         ((m_has_stop) && (timestep > m_step_stop)) ||
         ((m_has_step_skip) && (timestep % m_step_skip != 0))) {
@@ -548,6 +559,8 @@ void RadiationHandler::add_radiation_contribution(
 void RadiationHandler::dump_radiation (
     const amrex::Real dt, const int timestep, const std::string& filename)
 {
+    WARPX_PROFILE("RadiationHandler::dump_radiation");
+
     if (!m_output_intervals_parser.contains(timestep+1)){ return; }
     Integral_overtime(dt);
     gather_and_write_radiation(filename, timestep);
@@ -555,6 +568,8 @@ void RadiationHandler::dump_radiation (
 
 void RadiationHandler::gather_and_write_radiation(const std::string& filename, [[maybe_unused]] const int timestep)
 {
+    WARPX_PROFILE("RadiationHandler::gather_and_write_radiation");
+
     auto radiation_data_cpu = amrex::Vector<amrex::Real>(m_det_pts[0]*m_det_pts[1]*m_omega_points);
     amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
         m_radiation_calculation.begin(), m_radiation_calculation.end(), radiation_data_cpu.begin());
@@ -678,6 +693,7 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
 
 void RadiationHandler::Integral_overtime(const amrex::Real dt)
 {
+    WARPX_PROFILE("RadiationHandler::Integral_overtime");
 
     const amrex::Real long_dt = dt * m_step_skip;
 
