@@ -153,9 +153,9 @@ namespace
                 const auto [sin_phi, cos_phi] = amrex::Math::sincos(phis[i]);
                 const auto [sin_theta, cos_theta] = amrex::Math::sincos(thetas[j]);
 
-                const auto wx = norm_direction[0]*cos_theta*sin_phi + u[0]*sin_theta + v[0]*cos_theta*cos_phi;
-                const auto wy = norm_direction[1]*cos_theta*sin_phi + u[1]*sin_theta + v[1]*cos_theta*cos_phi;
-                const auto wz = norm_direction[2]*cos_theta*sin_phi + u[2]*sin_theta + v[2]*cos_theta*cos_phi;
+                const auto wx = norm_direction[0]*cos_theta*cos_phi + u[0]*sin_theta + v[0]*cos_theta*sin_phi;
+                const auto wy = norm_direction[1]*cos_theta*cos_phi + u[1]*sin_theta + v[1]*cos_theta*sin_phi;
+                const auto wz = norm_direction[2]*cos_theta*cos_phi + u[2]*sin_theta + v[2]*cos_theta*sin_phi;
 
                 const int idx = i*det_points[1] + j;
                 host_det_x[idx] = center[0] + distance*wx;
