@@ -25,7 +25,7 @@
 
 #include <cmath>
 
-#if WARPX_USE_PSATD
+#if WARPX_USE_FFT
 
 using namespace amrex::literals;
 using namespace ablastr::math;
@@ -373,4 +373,4 @@ PsatdAlgorithmFirstOrder::VayDeposition (SpectralFieldData& field_data)
         "Vay deposition not implemented for first-order PSATD equations");
 }
 
-#endif // WARPX_USE_PSATD
+#endif // WARPX_USE_FFT

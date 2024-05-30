@@ -173,7 +173,7 @@ Overall simulation parameters
 
     * ``fft``: Poisson's equation is solved using an Integrated Green Function method (which requires FFT calculations).
         See these references for more details :cite:t:`QiangPhysRevSTAB2006`, :cite:t:`QiangPhysRevSTAB2006err`.
-        It only works in 3D and it requires the compilation flag ``-DWarpX_PSATD=ON``.
+        It only works in 3D and it requires the compilation flag ``-DWarpX_FFT=ON``.
         If mesh refinement is enabled, this solver only works on the coarsest level.
         On the refined patches, the Poisson equation is solved with the multigrid solver.
         In electrostatic mode, this solver requires open field boundary conditions (``boundary.field_lo,hi = open``).
@@ -436,6 +436,10 @@ Domain Boundary Conditions
       and the component normal to the boundary is sampled from ``gaussian flux`` distribution.
       The standard deviation for these distributions should be provided for each species using
       ``boundary.<species>.u_th``. The same standard deviation is used to sample all components.
+
+    * ``None``: No boundary conditions are applied to the particles.
+      When using RZ, this option must be used for the lower radial boundary, the first value of ``boundary.particle_lo``.
+      This should not be used in any other cases.
 
 * ``boundary.reflect_all_velocities`` (`bool`) optional (default `false`)
     For a reflecting boundary condition, this flags whether the sign of only the normal velocity is changed or all velocities.
@@ -2252,7 +2256,7 @@ Maxwell solver: PSATD method
 
 * ``psatd.v_comoving`` (3 floating-point values, in units of the speed of light; default ``0. 0. 0.``)
     Defines the comoving velocity in the comoving PSATD scheme.
-    A non-zero comoving velocity selects the comoving PSATD algorithm, which suppresses the numerical Cherenkov instability (NCI) in boosted-frame simulations, under certain assumptions. This option requires that WarpX is compiled with ``USE_PSATD = TRUE``. It also requires the use of direct current deposition (``algo.current_deposition = direct``) and has not been neither implemented nor tested with other current deposition schemes.
+    A non-zero comoving velocity selects the comoving PSATD algorithm, which suppresses the numerical Cherenkov instability (NCI) in boosted-frame simulations, under certain assumptions. This option requires that WarpX is compiled with ``USE_FFT = TRUE``. It also requires the use of direct current deposition (``algo.current_deposition = direct``) and has not been neither implemented nor tested with other current deposition schemes.
 
 * ``psatd.do_time_averaging`` (`0` or `1`; default: 0)
     Whether to use an averaged Galilean PSATD algorithm or standard Galilean PSATD.
@@ -2689,10 +2693,11 @@ In-situ capabilities can be used by turning on Sensei or Ascent (provided they a
 
 * ``<diag_name>.<species_name>.variables`` (list of `strings` separated by spaces, optional)
     List of particle quantities to write to output.
-    Choices are ``w`` for the particle weight and ``ux`` ``uy`` ``uz`` for the particle momenta.
+    Choices are ``x``, ``y``, ``z`` for the particle positions (3D and RZ), ``x`` & ``z`` in 2D, ``z`` in 1D,
+    ``w`` for the particle weight and ``ux``, ``uy``, ``uz`` for the particle momenta.
     When using the lab-frame electrostatic solver, ``phi`` (electrostatic potential, on the macroparticles) is also available.
     By default, all particle quantities (except ``phi``) are written.
-    If ``<diag_name>.<species_name>.variables = none``, no particle data are written, except for particle positions, which are always included.
+    If ``<diag_name>.<species_name>.variables = none``, no particle data are written.
 
 * ``<diag_name>.<species_name>.random_fraction`` (`float`) optional
     If provided ``<diag_name>.<species_name>.random_fraction = a``, only `a` fraction of the particle data of this species will be dumped randomly in diag ``<diag_name>``, i.e. if `rand() < a`, this particle will be dumped, where `rand()` denotes a random number generator.

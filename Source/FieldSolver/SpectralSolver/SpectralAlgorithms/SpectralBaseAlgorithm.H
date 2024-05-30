@@ -24,7 +24,7 @@
 #include <array>
 #include <memory>
 
-#if WARPX_USE_PSATD
+#if WARPX_USE_FFT
 
 /* \brief Class that updates the field in spectral space
  * and stores the coefficients of the corresponding update equation.
@@ -102,5 +102,5 @@ class SpectralBaseAlgorithm
         KVectorComponent modified_kz_vec;
 };
 
-#endif // WARPX_USE_PSATD
+#endif // WARPX_USE_FFT
 #endif // WARPX_SPECTRAL_BASE_ALGORITHM_H_
