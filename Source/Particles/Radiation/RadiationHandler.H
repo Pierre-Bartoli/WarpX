@@ -22,6 +22,7 @@
 #include <AMReX_Vector.H>
 
 #include <memory>
+#include <optional>
 #include <string>
 
 /* \brief CollisionHandler is a class that contains the
@@ -91,13 +92,8 @@ private:
 
     bool m_use_logspace_for_omegas;
 
-    bool m_has_start;
-    bool m_has_stop;
-    bool m_has_step_skip;
-
-    int m_step_start;
-    int m_step_stop;
-    int m_step_skip;
-
+    std::optional<int> m_step_start = std::nullopt;
+    std::optional<int> m_step_stop = std::nullopt;
+    std::optional<int> m_step_skip = std::nullopt;
 };
 #endif // WARPX_PARTICLES_RADIATION_H

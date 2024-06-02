@@ -271,27 +271,29 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, co
             t_omegas.begin(), t_omegas.end(), m_omegas.begin());
     amrex::Gpu::Device::streamSynchronize();
 
-    m_has_start     = queryWithParser(pp_radiation, "step_start", m_step_start);
-    m_has_stop      = queryWithParser(pp_radiation, "step_stop", m_step_stop);
-    m_has_step_skip = queryWithParser(pp_radiation, "step_skip", m_step_skip);
-    if (!m_has_step_skip) m_step_skip = 1;
+    if (int step_start; queryWithParser(pp_radiation, "step_start", step_start)){
+        m_step_start = step_start;
+    }
+    if (int step_stop; queryWithParser(pp_radiation, "step_stop", step_stop)){
+        m_step_stop = step_stop;
+    }
+    if (int step_skip; queryWithParser(pp_radiation, "step_skip", step_skip)){
+        m_step_skip = step_skip;
+    }
 
-    m_has_start     = queryWithParser(pp_radiation, "step_start", m_step_start);
-
-
-    if (m_has_start || m_has_stop){
+    if (m_step_start.has_value() || m_step_stop.has_value()){
         ablastr::warn_manager::WMRecordWarning(
             "Radiation",
-            "Radiation will be integrated from step " + std::to_string(m_step_start) +
-            " to step " + std::to_string(m_step_stop),
+            "Radiation will be integrated from step " + std::to_string(m_step_start.value_or(-1)) +
+            " to step " + std::to_string(m_step_stop.value_or(std::numeric_limits<int>::max())),
             ablastr::warn_manager::WarnPriority::low
         );
     }
 
-    if (m_has_step_skip){
+    if (m_step_skip.has_value()){
         ablastr::warn_manager::WMRecordWarning(
             "Radiation",
-            "Radiation.step_skip is set to " + std::to_string(m_step_skip),
+            "Radiation.step_skip is set to " + std::to_string(m_step_skip.value()),
             ablastr::warn_manager::WarnPriority::low
         );
     }
@@ -387,9 +389,9 @@ void RadiationHandler::add_radiation_contribution(
 {
     WARPX_PROFILE("RadiationHandler::add_radiation_contribution");
 
-    if (((m_has_start) && (timestep < m_step_start)) ||
-        ((m_has_stop) && (timestep > m_step_stop)) ||
-        ((m_has_step_skip) && (timestep % m_step_skip != 0))) {
+    if (((m_step_start.has_value()) && (timestep < m_step_start.value())) ||
+        ((m_step_stop.has_value()) && (timestep > m_step_stop.value())) ||
+        ((m_step_skip.has_value()) && (timestep % m_step_skip.value() != 0))) {
         return;
     }
 
@@ -729,7 +731,7 @@ void RadiationHandler::Integral_overtime(const amrex::Real dt)
 {
     WARPX_PROFILE("RadiationHandler::Integral_overtime");
 
-    const amrex::Real long_dt = dt * m_step_skip;
+    const amrex::Real long_dt = dt * m_step_skip.value_or(1);
 
     const auto factor = long_dt*long_dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
 
