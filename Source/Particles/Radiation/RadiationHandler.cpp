@@ -611,8 +611,6 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
 
     if ( !ParallelDescriptor::IOProcessor() ) { return; }
 
-    amrex::Print() << m_det_pts[1] << "\n";
-
     const auto how_many = m_det_pts[0]*m_det_pts[1];
 
     auto det_pos_x_cpu = amrex::Vector<amrex::Real>(how_many);
@@ -635,27 +633,16 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
 
 #if defined(WARPX_DIM_XZ)
     if(m_2D_use_sum){
-        amrex::Print() << "1" << "\n";
         auto summed_radiation_data_cpu = amrex::Vector<amrex::Real>(m_det_pts[0]*m_omega_points);
-        amrex::Print() << radiation_data_cpu.size() << "\n";
-        amrex::Print() << m_det_pts[1] << "\n";
         auto dTheta = m_grid[1][1] - m_grid[1][0];
-        amrex::Print() << dTheta << "\n";
         for (int idx = 0; idx < m_det_pts[0]*m_omega_points; idx ++){
             for(int idxTheta = 0; idxTheta < m_det_pts[1]; idxTheta++){
-                //amrex::Print() << summed_radiation_data_cpu[idx] << "\n";
-                //amrex::Print() << dTheta << "\n";
                 summed_radiation_data_cpu[idx] = summed_radiation_data_cpu[idx] + radiation_data_cpu[idxTheta + idx*m_det_pts[0]]*std::sin(ablastr::constant::math::pi/2 + m_grid[1][idxTheta])*dTheta;
             }
         }
 
-        amrex::Print() << "end" << "\n";
-        //m_det_pts[1] = 1.0;
-        //m_grid[1] = amrex::Vector<amrex::Real>{0.0_rt};
-        amrex::Print() << "3" << "\n";
         radiation_data_cpu = amrex::Vector<amrex::Real>(m_det_pts[0]*m_omega_points);
         radiation_data_cpu = summed_radiation_data_cpu;
-        amrex::Print() << "4" << "\n";
 
         //redifine 2D grid onto the plane
         det_pts[1] = 1;
@@ -770,19 +757,15 @@ void RadiationHandler::gather_and_write_radiation(const std::string& filename, [
     g1s.storeChunkRaw(
         grid_cpu[0].data(),
         {0}, {(long unsigned int) grid_cpu[0].size()});
-    amrex::Print() << "5" << "\n";
     g2s.storeChunkRaw(
         grid_cpu[1].data(),
         {0}, {(long unsigned int) grid_cpu[1].size()});
-    amrex::Print() << "6" << "\n";
     det_xs.storeChunkRaw(
         det_pos_x_cpu.data(),
         {0,0}, {(long unsigned int) m_det_pts[0], (long unsigned int) det_pts[1]});
-    amrex::Print() << "7" << "\n";
     det_ys.storeChunkRaw(
         det_pos_y_cpu.data(),
         {0,0}, {(long unsigned int) m_det_pts[0], (long unsigned int) det_pts[1]});
-    amrex::Print() << "8" << "\n";
     det_zs.storeChunkRaw(
         det_pos_z_cpu.data(),
         {0,0}, {(long unsigned int) m_det_pts[0], (long unsigned int) det_pts[1]});
