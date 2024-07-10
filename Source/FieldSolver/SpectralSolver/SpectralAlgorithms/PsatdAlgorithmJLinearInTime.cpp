@@ -25,7 +25,7 @@
 
 #include <cmath>
 
-#if WARPX_USE_PSATD
+#if WARPX_USE_FFT
 
 using namespace amrex::literals;
 using namespace ablastr::math;
@@ -446,4 +446,4 @@ PsatdAlgorithmJLinearInTime::VayDeposition (SpectralFieldData& field_data)
         "Vay deposition not implemented for multi-J PSATD algorithm");
 }
 
-#endif // WARPX_USE_PSATD
+#endif // WARPX_USE_FFT

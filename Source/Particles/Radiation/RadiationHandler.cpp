@@ -290,33 +290,34 @@ RadiationHandler::RadiationHandler(const amrex::Array<amrex::Real,3>& center, co
             m_omega_range[0], m_omega_range[1]);
     }
 
-
     m_omegas = amrex::Gpu::DeviceVector<amrex::Real>(m_omega_points);
     amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
             t_omegas.begin(), t_omegas.end(), m_omegas.begin());
     amrex::Gpu::Device::streamSynchronize();
 
-    m_has_start     = queryWithParser(pp_radiation, "step_start", m_step_start);
-    m_has_stop      = queryWithParser(pp_radiation, "step_stop", m_step_stop);
-    m_has_step_skip = queryWithParser(pp_radiation, "step_skip", m_step_skip);
-    if (!m_has_step_skip) m_step_skip = 1;
+    if (int step_start; queryWithParser(pp_radiation, "step_start", step_start)){
+        m_step_start = step_start;
+    }
+    if (int step_stop; queryWithParser(pp_radiation, "step_stop", step_stop)){
+        m_step_stop = step_stop;
+    }
+    if (int step_skip; queryWithParser(pp_radiation, "step_skip", step_skip)){
+        m_step_skip = step_skip;
+    }
 
-    m_has_start     = queryWithParser(pp_radiation, "step_start", m_step_start);
-
-
-    if (m_has_start || m_has_stop){
+    if (m_step_start.has_value() || m_step_stop.has_value()){
         ablastr::warn_manager::WMRecordWarning(
             "Radiation",
-            "Radiation will be integrated from step " + std::to_string(m_step_start) +
-            " to step " + std::to_string(m_step_stop),
+            "Radiation will be integrated from step " + std::to_string(m_step_start.value_or(-1)) +
+            " to step " + std::to_string(m_step_stop.value_or(std::numeric_limits<int>::max())),
             ablastr::warn_manager::WarnPriority::low
         );
     }
 
-    if (m_has_step_skip){
+    if (m_step_skip.has_value()){
         ablastr::warn_manager::WMRecordWarning(
             "Radiation",
-            "Radiation.step_skip is set to " + std::to_string(m_step_skip),
+            "Radiation.step_skip is set to " + std::to_string(m_step_skip.value()),
             ablastr::warn_manager::WarnPriority::low
         );
     }
@@ -418,9 +419,9 @@ void RadiationHandler::add_radiation_contribution(
 {
     WARPX_PROFILE("RadiationHandler::add_radiation_contribution");
 
-    if (((m_has_start) && (timestep < m_step_start)) ||
-        ((m_has_stop) && (timestep > m_step_stop)) ||
-        ((m_has_step_skip) && (timestep % m_step_skip != 0))) {
+    if (((m_step_start.has_value()) && (timestep < m_step_start.value())) ||
+        ((m_step_stop.has_value()) && (timestep > m_step_stop.value())) ||
+        ((m_step_skip.has_value()) && (timestep % m_step_skip.value() != 0))) {
         return;
     }
 
@@ -466,31 +467,44 @@ void RadiationHandler::add_radiation_contribution(
                     const auto* p_m_FF = m_FF.dataPtr();
 
                     auto* p_radiation_data = m_radiation_data.dataPtr();
-                    
-                    /////////////////////////////////////////////////////////
-                    auto debugP = amrex::Gpu::DeviceVector<amrex::Real>(m_omega_points);
-
-                    auto debugXP = amrex::Gpu::DeviceVector<amrex::Real>(m_omega_points);
-                    auto debugYP = amrex::Gpu::DeviceVector<amrex::Real>(m_omega_points);
-                    auto debugZP = amrex::Gpu::DeviceVector<amrex::Real>(m_omega_points);
-
-                    auto debug = debugP.dataPtr();
-                    auto debugX = debugXP.dataPtr();
-                    auto debugY = debugYP.dataPtr();
-                    auto debugZ = debugZP.dataPtr();
-                    /////////////////////////////////////////////////////////
 
                     const auto omega_points = m_omega_points;
 
                     WARPX_ALWAYS_ASSERT_WITH_MESSAGE((np-1) == static_cast<int>(np-1), "too many particles!");
 
-                    const auto np_times_det_pos = np*how_many_det_pos;
+#if defined(WARPX_DIM_3D)
+                    const auto np_omegas_detpos = amrex::Box{
+                        amrex::IntVect{0,0,0},
+                        amrex::IntVect{0, omega_points-1, how_many_det_pos-1}};
+#else
+                    const auto np_omegas_detpos = amrex::Box{
+                        amrex::IntVect{0,0},
+                        amrex::IntVect{static_cast<int>(np-1), ((omega_points) * (how_many_det_pos) - 1)}};
+                        //amrex::ignore_unused(p_det_pos_y);
+#endif
 
+
+#if defined(WARPX_DIM_3D)
                     amrex::ParallelFor(
-                        np_times_det_pos, [=] AMREX_GPU_DEVICE(int ii){
-                            const int ip  = ii / (how_many_det_pos);
-                            const int i_det = ii % (how_many_det_pos);
+                        np_omegas_detpos, [=] AMREX_GPU_DEVICE(int, int i_om, int i_det){
+#else
+                    amrex::ParallelFor(
+                        np_omegas_detpos, [=] AMREX_GPU_DEVICE(int ip, int i_om_det, int){
+                        const int i_det = i_om_det % (how_many_det_pos);
+                        const int i_om  = i_om_det / (how_many_det_pos);
+#endif
 
+                        const auto i_omega_over_c = Complex{0.0_prt, 1.0_prt}*p_omegas[i_om]*inv_c;
+
+                        const auto nx = p_det_n_x[i_det];
+                        const auto ny = p_det_n_y[i_det];
+                        const auto nz = p_det_n_z[i_det];
+
+                        auto sum_cx = Complex{0.0_prt, 0.0_prt};
+                        auto sum_cy = Complex{0.0_prt, 0.0_prt};
+                        auto sum_cz = Complex{0.0_prt, 0.0_prt};
+
+                        for (int ip =  0; ip < np; ++ip){
                             amrex::ParticleReal xp, yp, zp;
                             GetPosition.AsStored(ip, xp, yp, zp);
 
@@ -502,20 +516,16 @@ void RadiationHandler::add_radiation_contribution(
 
                             auto const one_over_gamma = 1._prt/std::sqrt(1.0_rt + u2*inv_c2);
                             auto const one_over_gamma_c = one_over_gamma*inv_c;
+
+                            const auto bx = ux*one_over_gamma_c;
+                            const auto by = uy*one_over_gamma_c;
+                            const auto bz = uz*one_over_gamma_c;
+
                             const auto one_over_dt_gamma_c = one_over_gamma_c/dt;
 
-                            const auto bx  = ux*one_over_gamma_c;
-                            const auto by  = uy*one_over_gamma_c;
-                            const auto bz  = uz*one_over_gamma_c;
                             const auto bpx = (p_ux[ip] - p_ux_old[ip])*one_over_dt_gamma_c;
                             const auto bpy = (p_uy[ip] - p_uy_old[ip])*one_over_dt_gamma_c;
                             const auto bpz = (p_uz[ip] - p_uz_old[ip])*one_over_dt_gamma_c;
-
-                            const auto w = p_w[ip];
-
-                            const auto nx = p_det_n_x[i_det];
-                            const auto ny = p_det_n_y[i_det];
-                            const auto nz = p_det_n_z[i_det];
 
                             const auto one_minus_b_dot_n = 1.0_prt - (bx*nx + by*ny + bz*nz);
 
@@ -534,50 +544,45 @@ void RadiationHandler::add_radiation_contribution(
                             const auto n_cross_n_minus_beta_cross_bp_y = nz*n_minus_beta_cross_bp_x - nx*n_minus_beta_cross_bp_z;
                             const auto n_cross_n_minus_beta_cross_bp_z = nx*n_minus_beta_cross_bp_y - ny*n_minus_beta_cross_bp_x;
 
-                            const auto nyquist_threshold = ablastr::constant::math::pi/one_minus_b_dot_n/dt;
-
                             const auto n_dot_r = nx*xp + ny*yp + nz*zp;
+                            const auto phase_term = amrex::exp(i_omega_over_c*(c*current_time - (n_dot_r)));
 
-#ifdef AMREX_USE_OMP
-                            #pragma omp simd
+                            const auto FF = p_m_FF[i_om*how_many_det_pos + i_det];
+                            const auto form_factor = std::sqrt(p_w[ip] + (p_w[ip]*p_w[ip]-p_w[ip])*FF);
+
+                            const auto coeff = q*phase_term/(one_minus_b_dot_n*one_minus_b_dot_n)*form_factor;
+
+                            //Nyquist limiter
+                            const amrex::Real nyquist_flag = (p_omegas[i_om] < ablastr::constant::math::pi/one_minus_b_dot_n/dt);
+
+                            const auto cx = coeff*n_cross_n_minus_beta_cross_bp_x*nyquist_flag;
+                            const auto cy = coeff*n_cross_n_minus_beta_cross_bp_y*nyquist_flag;
+                            const auto cz = coeff*n_cross_n_minus_beta_cross_bp_z*nyquist_flag;
+
+                            sum_cx += cx;
+                            sum_cy += cy;
+                            sum_cz += cz;
+                        }
+
+                        const int ncomp = 3;
+                        const int idx0 = (i_om*how_many_det_pos + i_det)*ncomp;
+                        const int idx1 = idx0 + 1;
+                        const int idx2 = idx0 + 2;
+
+#if defined(AMREX_USE_OMP)
+
+                        amrex::HostDevice::Atomic::Add(&p_radiation_data[idx0].m_real, sum_cx.m_real);
+                        amrex::HostDevice::Atomic::Add(&p_radiation_data[idx0].m_imag, sum_cx.m_imag);
+                        amrex::HostDevice::Atomic::Add(&p_radiation_data[idx1].m_real, sum_cy.m_real);
+                        amrex::HostDevice::Atomic::Add(&p_radiation_data[idx1].m_imag, sum_cy.m_imag);
+                        amrex::HostDevice::Atomic::Add(&p_radiation_data[idx2].m_real, sum_cz.m_real);
+                        amrex::HostDevice::Atomic::Add(&p_radiation_data[idx2].m_imag, sum_cz.m_imag);
+#else
+                        p_radiation_data[idx0] += sum_cx;
+                        p_radiation_data[idx1] += sum_cy;
+                        p_radiation_data[idx2] += sum_cz;
 #endif
-                            for (int i_om = 0; i_om < omega_points; ++i_om){
-                                const auto i_omega_over_c = Complex{0.0_prt, 1.0_prt}*p_omegas[i_om]*inv_c;
-                                const auto phase_term = amrex::exp(i_omega_over_c*(c*current_time - (n_dot_r)));
-
-                                const auto FF = p_m_FF[i_om*how_many_det_pos + i_det];
-                                const auto form_factor = std::sqrt(w + (w*w-w)*FF);
-                                
-                                const auto coeff = q*phase_term/(one_minus_b_dot_n*one_minus_b_dot_n)*form_factor;
-                                //const auto coeff = q*phase_term/(one_minus_b_dot_n*one_minus_b_dot_n);
-
-                                //Nyquist limiter
-                                const amrex::Real nyquist_flag = (p_omegas[i_om] < nyquist_threshold);
-
-                                const auto cx = coeff*n_cross_n_minus_beta_cross_bp_x*nyquist_flag;
-                                const auto cy = coeff*n_cross_n_minus_beta_cross_bp_y*nyquist_flag;
-                                const auto cz = coeff*n_cross_n_minus_beta_cross_bp_z*nyquist_flag;
-                        
-                                ////////////////////////////////////
-                                debug[i_om] = (amrex::norm(cx));
-                                /*debugY[i_om] = amrex::norm(cy);
-                                debugY[i_om] = amrex::norm(cy);
-                                debugZ[i_om] = amrex::norm(cz);*/
-                                //////////////////////////////////
-
-                                constexpr int ncomp = 3;
-                                const int idx0 = (i_om*how_many_det_pos + i_det)*ncomp;
-                                const int idx1 = idx0 + 1;
-                                const int idx2 = idx0 + 2;
-
-                                amrex::HostDevice::Atomic::Add(&p_radiation_data[idx0].m_real, cx.m_real);
-                                amrex::HostDevice::Atomic::Add(&p_radiation_data[idx0].m_imag, cx.m_imag);
-                                amrex::HostDevice::Atomic::Add(&p_radiation_data[idx1].m_real, cy.m_real);
-                                amrex::HostDevice::Atomic::Add(&p_radiation_data[idx1].m_imag, cy.m_imag);
-                                amrex::HostDevice::Atomic::Add(&p_radiation_data[idx2].m_real, cz.m_real);
-                                amrex::HostDevice::Atomic::Add(&p_radiation_data[idx2].m_imag, cz.m_imag);
-                            }
-                        });
+                    });
                 }
             }
         }
@@ -808,7 +813,7 @@ void RadiationHandler::Integral_overtime(const amrex::Real dt)
 {
     WARPX_PROFILE("RadiationHandler::Integral_overtime");
 
-    const amrex::Real long_dt = dt * m_step_skip;
+    const amrex::Real long_dt = dt * m_step_skip.value_or(1);
 
     const auto factor = long_dt*long_dt/16/std::pow(ablastr::constant::math::pi,3)/PhysConst::ep0/(PhysConst::c);
 
@@ -825,6 +830,5 @@ void RadiationHandler::Integral_overtime(const amrex::Real dt)
             const int idx1 = idx0 + 1;
             const int idx2 = idx0 + 2;
             p_radiation_calculation[idx]=(amrex::norm(p_radiation_data[idx0]) + amrex::norm(p_radiation_data[idx1]) + amrex::norm(p_radiation_data[idx2]))*factor;
-           
         });
 }
